@@ -1,20 +1,6 @@
-###################################################
-# Author: Fabian Kalleitner
-# Title: R Intro 2 
-# Purpose: Working with cross sectional data using tidy
-# Version: V2.0
-# Date: 24-05-2022
 
-###################################################
-#load packages
-###################################################
 
-#install.packages("ineq")
 
-library("ineq")
-library("tidyverse") 
-library("panelr")
-library("stargazer")
 
 ################################################
 #now lets focus on incomes and wages and use dplyr and tidyR
