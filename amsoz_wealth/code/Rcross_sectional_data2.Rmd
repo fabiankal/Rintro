@@ -1,0 +1,568 @@
+---
+title: "R_cross_sectional_data"
+author: "Fabian Kalleitner"
+date: "24/05/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+###################################################
+# Author: Fabian Kalleitner
+# Title: R Intro 2 
+# Purpose: Working with cross sectional data using tidy
+# Version: V2.0
+# Date: 24-05-2022
+###################################################
+
+###################################################
+#set up markdown options
+###################################################
+
+knitr::opts_chunk$set(echo = TRUE)
+
+###################################################
+#load packages
+###################################################
+
+
+#install.packages("stargazer")# remember installing if not done previously
+
+
+library("tidyverse") 
+library("stargazer")
+library("modelsummary") # installing can take a while
+library("flextable")
+library("haven")
+library("srvyr")
+library("ggthemes")
+library("RColorBrewer")
+library("marginaleffects")
+
+###################################################
+#set the root directory
+###################################################
+
+#if you have saved this R markdown file within the R project as described in the slides your root directory should be the location of the project 
+
+getwd() # read the working directory of this R session (this is the standard file path for R)
+
+setwd("C:/Users/Kalleitner/Documents/GIT/Rintro/amsoz_wealth/") # you can change the working directory in an R script if it is not the root directory of the project using this code
+
+knitr::opts_knit$set(root.dir = 'C:/Users/Kalleitner/Documents/GIT/Rintro/amsoz_wealth/') # to change the root directory in a R markdown file use this code
+
+
+```
+
+## Data import
+
+Before importing the data you should have set up your target folder(=directory). Afterwards you should download the raw data file from your source and copy it into the data/raw directory. You can find the ACPP data @ [AUSSDA] (https://data.aussda.at/dataset.xhtml?persistentId=doi:10.11587/28KQNS)
+
+```{r loading data}
+#import the data into a dataframe called dataset with the function read_sav provided in the haven package
+
+dataset = read_sav("./data/raw/10094_da_de_v4_0.zsav") # note this can take a few seconds the dataset is quite large
+
+#let's take a look at the data and its structure
+typeof(dataset) #dataset is a list object which is a number of data.frames in a row. For now we can use it like it is a single simple data.frame
+
+ncol(dataset) # displays the number of columns in the dataset
+nrow(dataset) # displays the number of rows in the dataset
+
+glimpse(dataset[,1:10]) # take a look at the first 10 columns in the dataset
+
+glimpse(dataset[,600:610]) # take a look at columns 600-610 in the dataset
+
+#We note that the dataset contains multiple individuals that are identified with RESPID
+
+#The dataset also contains multiple waves and provides the answers of respondents in a WIDE format. That means:
+# - every Respondent has a unique data row
+# - data from multiple waves are represented in the same data row
+# - information about the wave of a specific data cell is in the column name -> here for example W3_ or W21_
+
+```
+
+## Where can I find the variables I need? 
+
+Let's look at the documentation to find what columns correspond to which question in the survey
+
+### What concepts do I have in my hypotheses?
+
+H1: 
+
+- finanzielle Situation
+- neuen Arbeitsmarktsituation
+
+H2:
+- all the above
+- subjektive ökonomische Gefahreneinschätzung
+
+H3: 
+
+- all the above
+- Vermögen
+
+### What is an appropriate research design (identification strategy) to test my hypotheses?
+
+- Cross sectional correlation tests using regressions (controlling for confounders)
+- Panel regression (utilizing changes instead of levels)
+- Differences in differences (Focussing on a single change in time between groups that have similair time trejecotries)
+
+We will focus on the first Research Design here and move to the 2nd and third in Rpanel_data.Rmd
+
+### How can I operationalize the concepts in my hypotheses?
+
+Best thing would be to look at other papers ans find out how the operationalized for example preferences for redistribution and make a study using the optimal operationalization. As we use secondary data, we cannot do that. We can only use what is there. This means we cannot have concepts in our hypotheses which are not in the data.
+
+look up the question --> let's focus on wave 6 for now
+
+- finanzielle Situation 
+  - finanzielles auskommen aktuell W6_Q72 (also used in the SILC in a similair manner) material deprivation
+
+- neuen Arbeitsmarktsituation
+  - Aenderung berufliche Situation: Home-Office W6_Q64A1
+  - Aenderung berufliche Situation: Abbau Zeitausgleich/Urlaub W6_Q64A2
+  - Aenderung berufliche Situation: Stundenaufstockung W6_Q64A4
+  - Aenderung berufliche Situation: Kurzarbeit W6_Q64A5
+  - Aenderung berufliche Situation: keine der genannten Aspekte W6_Q64A11
+  - Aenderung berufliche Situation: keine Angabe W6_Q64A12
+  - Aenderung berufliche Situation: Sonstiges (inkl. Kat. 3, 6, 7, 8, 9, 10) W6_Q64A13
+
+- subjektive ökonomische Gefahreneinschätzung
+  - Wirtschaftliche Gefahr: Fuer mich persoenlich W6_Q13A1
+  - Wirtschaftliche Gefahr: Fuer die oesterreichische Bevoelkerung W6_Q13A2
+  
+- Vermögen
+  - EIGENTUM: HAUS/WOHNUNG, IN DER MAN LEBT SD_HOMEOWNER
+  - EIGENTUM: GESCHÄFT, UNTERNEHMEN, LANDWIRTSCHAFT ODER GRUNDSTÜCK SD_OWNER_BUSINESS
+  - EIGENTUM: VERMIETETE IMMOBILIE SD_OWNER_LEASEDPROPERTY
+  - EIGENTUM: SPARGUTHABEN SD_OWNER_SAVINGS 
+  - EIGENTUM: AKTIEN, WERTPAPIERE, FONDS ODER ANLEIHEN SD_OWNER_SHARES
+  - EIGENTUM: WOCHENENDHAUS, FERIENWOHNUNG,ETC. SD_OWNER_WEEKENDHOUSE
+  
+### Think about potential confounders and the sample
+
+- Basic variables about the dataset
+  - RESPID (unique indicator of the respondent)
+  - W6_PANELIST (indicates whether a respondent filled in the questionnaire of wave 6)
+  - W6_WEIGHTD (demographische Gewichte für die Welle 6)
+  - W6_START_DATE (an welchem Tag wurde mit der beantwortung begonnen)
+
+- Control variables (potential confounder / sources of selection)
+  - W6_Q11 Erwerbstaetigkeit aktuell
+  - SD_EDU
+  - SD_GENDER
+  - SD_HH_ADULTS
+  - SD_HH_CHILD14
+  - SD_HH_CHILD18
+  - SD_HH_CHILD2
+  - SD_HH_CHILD5
+  - SD_HH_NOANSWER
+  - SD_HH_PARTNER
+  - SD_INDUSTRY
+  - W6_Q60A1 Arbeitsstunden: Jetzt pro Woche 
+  - W6_Q66 Aktuelles persoenliches Einkommen 
+  - W6_Q70 Aktuelles Haushaltseinkommen 
+
+## Subsetting the data
+
+Now that we know which variables we want to use let us subset the data to get a more convenient smaller dataset only containing those variables we actually intent to use.
+
+```{r subsetting the dataset}
+
+#to get a more workable dataset only select the variables we actually need and store it in a new dataframe
+
+dataset_r <- dataset %>% select(W6_Q72,
+                                W6_Q64A1,W6_Q64A2,W6_Q64A4,W6_Q64A5,W6_Q64A11,W6_Q64A12,W6_Q64A13,
+                                W6_Q13A1,W6_Q13A2,
+                                SD_HOMEOWNER,SD_OWNER_BUSINESS,SD_OWNER_LEASEDPROPERTY,SD_OWNER_SAVINGS,SD_OWNER_SHARES,SD_OWNER_WEEKENDHOUSE,
+                                RESPID,W6_PANELIST,W6_WEIGHTD,W6_START_DATE,
+                                W6_Q11,SD_EDU,SD_GENDER,
+                                SD_HH_ADULTS,SD_HH_CHILD14,SD_HH_CHILD18,SD_HH_CHILD2,SD_HH_CHILD5,SD_HH_NOANSWER,SD_HH_PARTNER,
+                                SD_INDUSTRY,W6_Q60A1,W6_Q66,W6_Q70)
+
+glimpse(dataset_r) # take a look at the new restricted dataset
+
+
+dataset_r<- dataset_r %>% filter(W6_PANELIST==1) # only use the respondents that actually respondet in our target wave 6
+
+nrow(dataset_r) # now we have only the 1551 individuals participated in this wave. This also corresponds to the number displayed on the homepage or in the method report page 5
+
+```
+## Recoding the variables
+
+We now have a dataset containing only individuals participating in wave 6 with only those variables we actually need. However the coding of this variables can be different from what we would want. For example R can interpret numeric values as characters, make factor variables out of we want to use as continous variables. Furthermore, sometimes we want want certain variables recoded (e.g. not differentiating between public and private employees in the variable indicating labor market status) or generate new variables from others (e.g. generating a wealth index from the various welath indicators in the dataset). 
+
+The following code looks at different variables, recodes them to be used to test our hypotheses and checks wether the different recodings are correct.
+
+```{r looking at the data and recoding}
+
+table(dataset_r$W6_Q72) # Finanzielles Auskommen: Aktuell
+
+table(as_factor(dataset_r$W6_Q72)) # Finanzielles Auskommen: Aktuell
+
+# two things are important here: we sometimes will want the numeric value of a variable and sometimes it's factor level and 2 we sometimes want to have missing values included in the data and sometimes not (especially when we do calculations with this variable)
+
+dataset_r_rec<-dataset_r %>% mutate(fin_aus_akt_n = ifelse(as.numeric(W6_Q72)<6,as.numeric(W6_Q72),NA),
+                                    fin_aus_akt_f = as_factor(W6_Q72),
+                                    
+                                    gef_oec_per_n = ifelse(as.numeric(W6_Q13A1)<6,as.numeric(W6_Q13A1),NA))
+
+#again I can check my recoding: 
+table(dataset_r_rec$gef_oec_per_n)
+
+#even better:
+table(dataset_r_rec$gef_oec_per_n,dataset_r_rec$W6_Q13A1, useNA="always") # first variable is columns
+
+#or
+table(dataset_r_rec$gef_oec_per_n,as_factor(dataset_r_rec$W6_Q13A1), useNA="always") # first variable is columns
+
+# note that the variable goes from 1= sehr gross to 5 = sehr klein. Thus higher values indicate less perceived economic threats this seems counter intuitive. Let's change that:
+
+dataset_r_rec<-dataset_r_rec %>% mutate(gef_oec_per_n = 5-gef_oec_per_n,
+                                        fin_aus_akt_n = 5-fin_aus_akt_n)
+
+table(dataset_r_rec$gef_oec_per_n,as_factor(dataset_r_rec$W6_Q13A1), useNA="always") # now 0 indicates sehr kleine Gefahr and 4 indicates sehr grosse gefahr
+# we also changed it at the same time for fin_aus_akt_n as here too higher values indicated less ability to cope with the financial assets one has
+
+# Another option would be to conceptualize not as personal threat but as a more general concept of thread consisting of a personal and a public component (reflexive and non-reflexive)
+
+# To calculate such a variable we first have to recode the public threat variable in the same manner as gef_oec_per_n above and afterwards we use the mean of personal and public threat perceptions as an indicator of general economic threat perception
+
+
+dataset_r_rec<-dataset_r_rec %>% mutate(gef_oec_pub_n = 5-(ifelse(as.numeric(W6_Q13A2)<6,as.numeric(W6_Q13A2),NA)),
+                                        gef_oec_gen_n = (gef_oec_per_n + gef_oec_pub_n)/2)
+
+
+head(dataset_r_rec%>%select(gef_oec_per_n,gef_oec_pub_n,gef_oec_gen_n),5) # show the first 5 rows (=individuals) of the dataset to check the recoding
+
+#Vermögen:
+
+# as we have many indicators on what people wither have or don't have lets make a sum index = 0 if an individual has none of the assets and 5 if and individual has all assets
+
+# think of the advantages and disadvantages here
+
+table(dataset_r_rec$SD_HOMEOWNER, useNA="always")
+table(as_factor(dataset_r_rec$SD_HOMEOWNER), useNA="always") # 1 = ja, 2= no, else NA , note that a substantial part of the sample have NA in this question: the reason here is that this question was only introduced later on in the survey and not all got this question
+
+dataset_r_rec<-dataset_r_rec %>% mutate(ase_hom_n = 2-(ifelse(as.numeric(SD_HOMEOWNER)<3,as.numeric(SD_HOMEOWNER),NA)),
+                                        ase_bus_n = 2-(ifelse(as.numeric(SD_OWNER_BUSINESS)<3,as.numeric(SD_OWNER_BUSINESS),NA)),
+                                        ase_pro_n = 2-(ifelse(as.numeric(SD_OWNER_LEASEDPROPERTY)<3,as.numeric(SD_OWNER_LEASEDPROPERTY),NA)),
+                                        ase_sav_n = 2-(ifelse(as.numeric(SD_OWNER_SAVINGS)<3,as.numeric(SD_OWNER_SAVINGS),NA)),
+                                        ase_sha_n = 2-(ifelse(as.numeric(SD_OWNER_SHARES)<3,as.numeric(SD_OWNER_SHARES),NA)),
+                                        ase_who_n = 2-(ifelse(as.numeric(SD_OWNER_WEEKENDHOUSE)<3,as.numeric(SD_OWNER_WEEKENDHOUSE),NA)),
+                                        
+                                        ase_sum_n = ase_hom_n + ase_bus_n + ase_pro_n + ase_sav_n + ase_sha_n + ase_who_n,
+                                        )
+
+
+#check recoding
+table(dataset_r_rec$ase_hom_n,as_factor(dataset_r_rec$SD_HOMEOWNER), useNA="always") 
+
+head(dataset_r_rec%>%select(ase_hom_n,ase_bus_n,ase_pro_n,ase_sav_n,ase_sha_n,ase_who_n,ase_sum_n),5)
+
+table(dataset_r_rec$ase_sum_n, useNA="always") # quite a substantial share of missing values -> think about why the share of missing values is even higher than for SD_HOMEOWNER allone
+
+# labor market status
+
+# this is one of the most "complicated variables" -> first look at the questionnaire it says that only those with .. get the question on ..
+
+# most general first option is to create a "super status variable" that combines the general labor market status question and the follow up questions
+
+#first let us get an idea about the levels and codes in these variables
+table(as_factor(dataset_r_rec$W6_Q11), useNA="always") 
+table(as.numeric(dataset_r_rec$W6_Q11), useNA="always") 
+
+table(as_factor(dataset_r_rec$W6_Q64A1), useNA="always") 
+table(as.numeric(dataset_r_rec$W6_Q64A1), useNA="always") 
+
+#when looking at the cross table one easily sees that not everyone got the follow up questions
+table(as_factor(dataset_r_rec$W6_Q11),as_factor(dataset_r_rec$W6_Q64A1), useNA="always") 
+
+#lets think about the coding and structure we want to have in our new variable current labor market status: lab_sta_cur
+
+# 0 = (Un)selbststaendig erwerbstaetig (=privat+oeff+selbst) + only those not in Home Office (W6_Q64A1) and not in Kurzarbeit (W6_Q64A5)
+# 1 = (Un)selbststaendig erwerbstaetig (=privat+oeff+selbst) + Kurzarbeit 
+# 2 = (Un)selbststaendig erwerbstaetig (=privat+oeff+selbst) + Home-Office (nur wenn nicht Kurzarbeit)
+# 3 = Arbeitslos
+# 4 = Pensionist*in
+# 5 = in Ausbildung (Schueler/in, Student/in, Bildungskarenz)
+# 6 = Sonstige (Ausschliesslich haushaltsfuehrend, Sonstiges, In Elternkarenz)
+# NA= Keine Angabe
+
+dataset_r_rec<-dataset_r_rec %>% mutate(lab_sta_cur = ifelse(as.numeric(W6_Q11)<4 & !(as.numeric(W6_Q64A1) %in% 1) & !(as.numeric(W6_Q64A5) %in% 1), 0,
+                                        ifelse(as.numeric(W6_Q11)<4 & (as.numeric(W6_Q64A5) %in% 1), 1,
+                                        ifelse(as.numeric(W6_Q11)<4 & (as.numeric(W6_Q64A1) %in% 1) & !(as.numeric(W6_Q64A5) %in% 1), 2,
+                                        ifelse(as.numeric(W6_Q11)==4,3,
+                                        ifelse(as.numeric(W6_Q11)==5,4,
+                                        ifelse(as.numeric(W6_Q11)==7,5,
+                                        ifelse(as.numeric(W6_Q11)==6 | as.numeric(W6_Q11)==8 | as.numeric(W6_Q11)==10,6,
+                                               NA)))))))
+                                        )
+
+table(dataset_r_rec$lab_sta_cur, useNA="always")
+
+dataset_r_rec$lab_sta_cur<-as.factor(dataset_r_rec$lab_sta_cur)
+levels(dataset_r_rec$lab_sta_cur)<-c("(Un)selbststaendig erwerbstaetig","in Kurzarbeit","in Home Office","Arbeitslos","in Pension","in Ausbildung","Sonstige")
+
+table(dataset_r_rec$W6_Q11,dataset_r_rec$lab_sta_cur, useNA="always")
+
+#CONTROLS
+
+
+```
+
+## Summary Statistics
+
+After recoding the variables,we want to look at the data and get an overview of different characteristics of the various variables in our dataset. This overview is often Table 1 in many scientific papers and nowadays mostly located in the Appendix. This will be the first time that we also clearly see a major difference between variables we use in continuous form (and assume interval/ratio scale level of measurement) and variables which we use in a categorical form (and assume ordinal or nominal scales).
+
+```{r providing first summary statistics}
+
+# First let's make a dataset containing only essential variables after our recoding is done.
+dataset_r_rec_sum <- dataset_r_rec %>% select(`respondent ID` = RESPID,
+                                              `weight` = W6_WEIGHTD,
+                                              `financial satisfaction` = fin_aus_akt_f,
+                                              `financial satisfaction num` = fin_aus_akt_n,
+                                              `economic threat perception` = gef_oec_gen_n,
+                                              `wealth` = ase_sum_n,
+                                              `labor market status` = lab_sta_cur)
+
+#now we can use the package modelsummary to calculate our first summary statistics 
+#note this can be done "by hand" but packages provide functions that make our lifes easier
+datasummary_skim(dataset_r_rec_sum)
+
+#this already gives us a good idea of how the data looks like, however some variables have not been displayed. We can look at the help file of the function to find out why this is the case:
+
+#?datasummary_skim
+
+#Datassummary strictly distinguishes between categorical and other variables because categorical variables have no "logical" mean or standard deviation. To display summary statistics for these variables we write the folliwing:
+datasummary_skim(dataset_r_rec_sum,type="categorical")
+
+#From the help file we also can see that we can change the summary statistics provided for continous variables. We do that to make a simple table and also export it to Word in the next step.
+
+df_sum <- as.data.frame(dataset_r_rec_sum)
+datasummary(All(df_sum) ~ Mean + SD + Min + Max + N,
+            data = df_sum,
+            output = 'markdown')
+
+datasummary(All(df_sum) ~ Mean + SD + Min + Max + N,
+            data = df_sum,
+            output = './output/tables/sumtable_numeric.docx')
+
+
+
+
+```
+
+## Weighted summary statistics and graphs
+
+To calculate summary statistics (means, shares, subgroup differences etc.) that provide insights about characteristics in the target population (and not only about the sample), we have to weight the data. In our case we can "only" do that using poststratification weights. The following code exemplifies this with the answer shares of our dependent variable: financial satisfaction. First we weight the data using the package srvyr and export a summary table. Then we display these answer shares in a visual form using ggplot.
+
+```{r weighted summary statistics and figures}
+
+data_sum_N<-dataset_r_rec %>% filter(!is.na(fin_aus_akt_f)) %>%  # only use individuals with not NA fin_aus_akt_f (in our case this does nothing because all individuals have valid answers for fin_aus_akt_f)
+ ungroup() %>% tally() # do not group the data + count all cases (individuals) in this dataset
+
+data_sum_N # we have N= 1551 individuals with a valid answer for fin_aus_akt_f in the dataset
+
+# calculated weighted shares of answers to get a better understanding of what the distribution of answers could be in the population (Grundgesamtheit) and not only in the sample
+
+# basically we might have more answers from older people than of younger ones -> hence our sample answer shares represent more the financial situation of older than of younger people. However, we in this case want to see what the answer shares would be if we would have the same age distribution as in the Austrian target population. Thus, we weight answers of younger individuals to be more important for the overall mean answers to account for the fact that we have less younger individuals in our sample compared to the Austrian target population. 
+
+#Fortunately these weights are already counted for us and we can directly use them. What characteristics have been used for the calculation of these weights can be found in the method report (here gender, age, gender X age, education, region (Bundesland), employment status, household size, and migration background). As well as the source of the information on the target population (in our case Statistik Austria).
+
+data_sum<-dataset_r_rec %>% filter(!is.na(fin_aus_akt_f)) %>% # again use only valid cases in the dataset
+  as_survey_design(weights = c(W6_WEIGHTD)) %>% # weight the data using the srvyr package
+  group_by(fin_aus_akt_f) %>% # group the data by the values (in this case factor levels) of fin_aus_akt_f
+  summarise(n=survey_total(,vartype = c("se")))  %>% # calculate summary statistics (weighted answer shares n) of all these categories and also include the standard errors
+     mutate(prop = n/sum(n),ymax=prop+1.96*sqrt((prop*(1-prop))/sum(n)), ymin=prop-1.96*sqrt((prop*(1-prop))/sum(n))) # calculate the answer share = prop as the answers shares within a category n divided by the total answers, calculate upper and lower confidence intervals using the standard errors 
+
+data_sum <- data_sum %>% mutate(prop=round(prop,2),
+                                ymax=round(ymax,3),
+                                ymin=round(ymin,3),
+                                N=data_sum_N$n)
+
+data_sum %>% select(fin_aus_akt_f,prop,ymax,ymin,N)
+
+#Export this table in .csv format
+write.csv(data_sum %>% select(fin_aus_akt_f,prop,ymax,ymin,N), "./output/tables/summarytable_fin.csv", na = "NA")
+
+####
+# Bar Graph
+# Basic ggplot code
+
+ggplot(data_sum, aes(x=fin_aus_akt_f, y=prop)) +  # what dataset should ggplot use + what variables should be plotted where
+    geom_bar(position="identity", stat = "identity", width=0.7) # what "geom" etric shape should ggplot use + where should these be plotted ("identity" in this case = at the exact position of x + with the exact height of y, width = how wide should the bars be visually)
+
+#make it more readable and more visually pleasing
+ggplot(data_sum, aes(fill=fin_aus_akt_f,x=fin_aus_akt_f, y=prop)) + # change also the fill color according to a variable
+    geom_bar(position="identity", show.legend = TRUE,stat = "identity", width=0.7) + # show a legend for the fill color
+    geom_text(aes(label=round(prop*100, digits = 1)), position=position_stack(vjust=0.5), color="black", size=2) + # print also the value of the bars in a text form positioned at the middle of the bars
+    scale_fill_brewer(palette = "RdYlBu", direction=-1) +  # color the bars from rd over yellow to blue in the opposite direction
+    labs(y = "Anteil der Befragten", x= "Finanzielles Auskommen",fill="") + # rename the axis labels and delete the legend title
+    scale_y_continuous(labels = scales::percent_format(accuracy = 1),limits = c(0,.5),breaks = seq(0, .5, by = .1)) + # rescale the y axis so that it displays % and only goes from 0 to .5 (50%) make horicontal grid lines and label them in the axis every .1 (10%)
+    theme_hc() + # use a ggplot theme where only horicontal grid lines are plotted (other options "minimal", "classic" etc)
+    theme(legend.position="bottom") + # position the legend at the bottom of the graph
+    guides(fill=guide_legend(ncol=5,nrow=2,byrow=TRUE)) +  #use 5 collums and 2 rows to display the items in the legend
+    scale_x_discrete(guide = guide_axis(n.dodge = 2)) # vary the y position of the x axis labels to make them more readable
+
+# the legend contains redundant information so let's not display it 
+ggplot(data_sum, aes(fill=fin_aus_akt_f,x=fin_aus_akt_f, y=prop)) + 
+    geom_bar(position="identity", show.legend = FALSE,stat = "identity", width=0.7) + # Here legend False instead of True
+    geom_text(aes(label=round(prop*100, digits = 1)), position=position_stack(vjust=0.5), color="black", size=2) +
+    scale_fill_brewer(palette = "RdYlBu", direction=-1) +  
+    labs(y = "Anteil der Befragten", x= "Finanzielles Auskommen",fill="") + 
+    scale_y_continuous(labels = scales::percent_format(accuracy = 1),limits = c(0,.5),breaks = seq(0, .5, by = .1)) +
+    theme_hc() +
+    theme(legend.position="bottom") + 
+    guides(fill=guide_legend(ncol=5,nrow=2,byrow=TRUE)) + 
+    scale_x_discrete(guide = guide_axis(n.dodge = 2))
+
+# the colouring is somewhat confusing so let's make a clear distinction between substantial answers and missing values
+newfillp5<-c(brewer.pal(5, name="RdYlBu")[5:1],brewer.pal(3, name="Greys")[c(2,3)]) # generate new color palette
+
+ggplot(data_sum, aes(fill=fin_aus_akt_f,x=fin_aus_akt_f, y=prop)) + 
+    geom_bar(position="identity", show.legend = FALSE,stat = "identity", width=0.7) +
+    geom_text(aes(label=round(prop*100, digits = 1)), position=position_stack(vjust=0.5), color="black", size=2) +
+    scale_fill_manual(values=newfillp5) + # manually color the fill of the bars
+    labs(y = "Anteil der Befragten", x= "Finanzielles Auskommen",fill="") + 
+    scale_y_continuous(labels = scales::percent_format(accuracy = 1),limits = c(0,.5),breaks = seq(0, .5, by = .1)) +
+    theme_hc() +
+    theme(legend.position="bottom") + 
+    guides(fill=guide_legend(ncol=5,nrow=2,byrow=TRUE)) + 
+    scale_x_discrete(guide = guide_axis(n.dodge = 2))
+
+ggsave("./output/figures/Figure1.png", units="in", width=7, height=4, type="cairo-png") # save the graph as png file using this size in inches, flatten the edges using cairo. Note that you have to run this line at the same time you are running the ggplot code
+
+#ggsave("./output/figures/Figure1.png", units="in", width=7, height=4) # if cairo does not work on your PC use this
+
+```
+
+## Descriptive overview of our main target relationship
+
+We are not only interested in the answer share of our dependent variable but how these answers relate to our independent variables of interest. The following code calculates the weighted average financial satisfaction dependent on the labor market status of the individuals. We export these results in form of a table and of a scatterplot with confidence intervals of the means. These results provide us with a first descriptive overview about the relationship between these two variables (financial satisfaction and labor market status) in the data.
+
+```{r basic relationships between 2 variables}
+
+data_sum_N<-dataset_r_rec %>% filter(!is.na(fin_aus_akt_n) & !is.na(lab_sta_cur)) %>%  # only use individuals with not NA both of our individuals of interest
+ ungroup() %>% tally()
+
+data_sum_N
+
+data_mean <- dataset_r_rec  %>% filter(!is.na(fin_aus_akt_n) & !is.na(lab_sta_cur)) %>%
+  as_survey_design(weights = c(W6_WEIGHTD)) %>%
+  group_by(lab_sta_cur) %>% # group the data by the levels in the variable lab_sta_cur
+  summarise(mean=survey_mean(fin_aus_akt_n,vartype = c("se"))) %>% # calculate the weighted mean
+  group_by(lab_sta_cur) %>%
+     mutate(ymax=mean+1.96*mean_se, ymin=mean-1.96*mean_se) # calculate the aprox. upper and lower tail of the 95% confidence interval
+
+data_mean <- data_mean %>% mutate(mean=round(mean,2), #round the values
+                                ymax=round(ymax,3),
+                                ymin=round(ymin,3),
+                                N=data_sum_N$n)
+
+data_mean %>% select(lab_sta_cur,mean,ymax,ymin,N)
+
+#Export this table in .csv format
+write.csv(data_mean %>% select(lab_sta_cur,mean,ymax,ymin,N), "./output/tables/meantable_fin.csv", na = "NA")
+
+#display the means in form of a scatterplot
+
+ggplot(data_mean, aes(color=lab_sta_cur,x=lab_sta_cur, y=mean)) + #color instead of fill because points have colors and no fill
+    geom_point(position="identity", show.legend = FALSE,stat = "identity") + #geom_point instead of geom_bar
+    geom_errorbar(aes(ymin=ymin,ymax=ymax),width=.1, show.legend = FALSE) + # add sescond geometric shape in form of errorbars in addition to the points indicating the means
+    labs(y = "Durchschnittliches finanzielles Auskommen\n0=sehr schwer - 4=sehr gut", x= "Arbeitsmarktstatus",color="") + 
+    scale_y_continuous(limits = c(0,4),breaks = seq(0, 4, by = 1)) +
+    theme_hc() +
+    scale_x_discrete(guide = guide_axis(n.dodge = 2))
+
+```
+
+## Statistical models to test our hypotheses (OLS Regressions)
+
+Finally, we can move to actually testing our hypotheses using the very minimal identification strategy of a cross-sectional data analysis, where we assume that we control for all potential selection/confounders of our variables of interest. First we test H1, then H2. Our estimatgion strategy uses a linear regression with an ordinary least squares estimator (OLS). We export the results in form of a regression table, a coefficient plot and a plot indicating Average marginal effects. 
+
+```{r regressions and statistical tests}
+
+#Let us start with a very basic linear regression
+
+mymodel1<-lm(fin_aus_akt_n~lab_sta_cur,data=dataset_r_rec,weights=W6_WEIGHTD)
+
+# the lm function works in the following form: lm(DV~IV1+IV2...+IVN, data=dataset,weights=weights) where DV is the dependent variable of interest and IV1-N are n potential indipendent variables. 
+
+#We can look at the results using the summary function:
+summary(mymodel1)
+
+#We can see that for example individuals who are "Arbeitslos" have -0.90 (=.90 less) financial satisfaction compared to our reference group which is automatically the group with the lowest factor level (in our case "(Un)selbststaendig erwerbstaetig"). This seems quite logica l and relates to the descriptive results we received in the previous section. In fact if we calculate the differences in the means between the those "Arbeitslos" and "(Un)selbststaendig erwerbstaetig" we would receive the same value of 0.90. 
+
+#For those in  Kurzarbeit we also find lower financial satisfaction compared to the reference group (-0.14219) but this difference is not statistically significantly different from 0 assuming a significance level of p<0.05. Quite contrary to what could expect those in Home Office actually are statistically significant more satisfied with their financial sitation compared to the reference group (0.38411, p<.001). Why would you think this is the case?
+
+#We also hypothesized that those who think the Covid-19 pandemic poses a great economic threat would be less satisfied with their income than those who think that the COVID-19 pandemic poses less of a threat.  
+
+# We can cisualize this relationship again
+ggplot(dataset_r_rec%>%filter(!is.na(lab_sta_cur)), aes(color=lab_sta_cur,x=gef_oec_gen_n, y=fin_aus_akt_n)) +
+  geom_point() 
+
+#Because we have only a small number of potential oucomes (answers of our question) the points overlap quite substantially we can avoid that by jittering the points a little bit and making them party transparent. Afterwards we calculate a trend line.
+
+ggplot(dataset_r_rec%>%filter(!is.na(lab_sta_cur)), aes(x=gef_oec_gen_n, y=fin_aus_akt_n)) +  
+  geom_jitter(aes(color=lab_sta_cur),alpha=.2) + 
+  geom_smooth(method=lm,se = TRUE) +
+  theme_minimal() 
+
+
+#Now let's add this variable as an independent variable to our model. 
+
+mymodel2<-lm(fin_aus_akt_n~lab_sta_cur + gef_oec_gen_n,data=dataset_r_rec,weights=W6_WEIGHTD)
+
+#How would you interpret the result?
+summary(mymodel2)
+
+# Our third hypotheses states that the economic shock of a certain labor market condition like home-office,  Kurzarbeit or unemployment might be less severy if the individual can rely on financial assets in form of different categories of wealth. This hypothesizes a moderating relationship: The higher the wealth the less severy should be the difference in financial satisfaction between different forms of labor market status.
+
+# we can visualize this again - what is different from H2?
+ggplot(dataset_r_rec%>%filter(!is.na(lab_sta_cur)), aes(color=lab_sta_cur, x=ase_sum_n, y=fin_aus_akt_n)) +  
+  geom_jitter(aes(),alpha=.2) + 
+  geom_smooth(method=lm,se = FALSE) +
+  theme_minimal()
+
+# Let's add wealth to our model and also account for the hypothesizes moderating relationship by adding an interaction between lab_sta_cur and ase_sum_n. (That is we allow the strength of the relationship to vary depending on the respective other variable)
+
+mymodel3<-lm(fin_aus_akt_n~lab_sta_cur + gef_oec_gen_n + ase_sum_n + lab_sta_cur*ase_sum_n,data=dataset_r_rec,weights=W6_WEIGHTD)
+
+#Let's look at the model. How would you interpret the results
+summary(mymodel3)
+
+# we can create a regression table containing all our models. Afterwards we export it to word.
+modelsummary(list(mymodel1,mymodel2,mymodel3), stars = TRUE,output="markdown")
+
+modelsummary(list(mymodel1,mymodel2,mymodel3), stars = TRUE,output="./output/tables/regtable1.docx")
+
+#Another form of presenting regression results are coefficient plots. Let's look at the coefficient plot of model 1:
+modelplot(mymodel1)
+#Coefficient plots are seldom used in papers but feature prominently in presentations where full regression tables are often hard to read.
+
+# Because interactions are hard to interpret using regression tables, we can calculate conditional adjusted predictions and average marginal effects which provide us with more straightforward interpretation of whether the effect of labor market status on financial satisfaction is dependent on the amount of wealth an individual has.
+
+#Conditional Adjusted Predictions (Plot)
+plot_cap(mymodel3, condition = c("ase_sum_n","lab_sta_cur"))
+
+plot_cap(mymodel3, condition = c("lab_sta_cur","ase_sum_n"))
+
+#Conditional Marginal Effects (Plot)
+plot_cme(mymodel3, effect = "ase_sum_n", condition = "lab_sta_cur") 
+
+#Because plot_cme creates a ggplot we can use similar functions as above in order to make the graph visually more appealing
+
+plot_cme(mymodel3, effect = "ase_sum_n", condition = "lab_sta_cur") + 
+  labs(x="Arbeitsmarktstatus",y="AME of wealth") +
+  scale_x_discrete(guide = guide_axis(n.dodge = 2))
+
+
+mymodel4<-lm(fin_aus_akt_n~lab_sta_cur + gef_oec_gen_n + ase_sum_n + lab_sta_cur*ase_sum_n + gef_oec_gen_n*ase_sum_n,data=dataset_r_rec,weights=W6_WEIGHTD)
+
+#Let's look at the model. How would you interpret the results
+summary(mymodel4)
+
+
+
+```
