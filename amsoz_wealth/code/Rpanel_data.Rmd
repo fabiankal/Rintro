@@ -1,0 +1,923 @@
+---
+title: "R_panel_data"
+author: "Fabian Kalleitner"
+date: "08/06/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+###################################################
+# Author: Fabian Kalleitner
+# Title: R Intro 2 
+# Purpose: Working with panel data using tidy
+# Version: V1.0
+# Date: 14-06-2022
+###################################################
+
+###################################################
+#set up markdown options
+###################################################
+
+knitr::opts_chunk$set(echo = TRUE)
+
+###################################################
+#load packages
+###################################################
+
+
+#install.packages("stargazer")# remember installing if not done previously
+
+
+library("tidyverse") 
+library("stargazer")
+library("modelsummary") # installing can take a while
+library("flextable")
+library("haven")
+library("srvyr")
+library("ggthemes")
+library("RColorBrewer")
+library("marginaleffects")
+library("panelr")
+library("fixest")
+
+###################################################
+#set the root directory
+###################################################
+
+#if you have saved this R markdown file within the R project as described in the slides your root directory should be the location of the project 
+
+getwd() # read the working directory of this R session (this is the standard file path for R)
+
+setwd("C:/Users/Kalleitner/Documents/GIT/Rintro/amsoz_wealth/") # you can change the working directory in an R script if it is not the root directory of the project using this code
+
+knitr::opts_knit$set(root.dir = 'C:/Users/Kalleitner/Documents/GIT/Rintro/amsoz_wealth/') # to change the root directory in a R markdown file use this code
+```
+
+## Data import
+
+Before importing the data you should have set up your target folder(=directory). Afterwards you should download the raw data file from your source and copy it into the data/raw directory. You can find the ACPP data @ [AUSSDA] (https://data.aussda.at/dataset.xhtml?persistentId=doi:10.11587/28KQNS)
+
+```{r loading data}
+#import the data into a dataframe called dataset with the function read_sav provided in the haven package
+
+dataset = read_sav("./data/raw/10094_da_de_v4_0.zsav") # note this can take a few seconds the dataset is quite large
+
+#let's take a look at the data and its structure
+typeof(dataset) #dataset is a list object which is a number of data.frames in a row. For now we can use it like it is a single simple data.frame
+
+ncol(dataset) # displays the number of columns in the dataset
+nrow(dataset) # displays the number of rows in the dataset
+
+glimpse(dataset[,1:10]) # take a look at the first 10 columns in the dataset
+
+glimpse(dataset[,600:610]) # take a look at columns 600-610 in the dataset
+
+#We note that the dataset contains multiple individuals that are identified with RESPID
+
+#The dataset also contains multiple waves and provides the answers of respondents in a WIDE format. That means:
+# - every Respondent has a unique data row
+# - data from multiple waves are represented in the same data row
+# - information about the wave of a specific data cell is in the column name -> here for example W3_ or W21_
+
+```
+
+## Where can I find the variables I need? 
+
+Let's look at the documentation to find what columns correspond to which question in the survey.
+
+### What concepts do I have in my hypotheses?
+
+H1: 
+
+- finanzielle Situation
+- neuen Arbeitsmarktsituation
+
+H3: 
+
+- all the above
+- Vermögen
+
+### What is an appropriate research design (identification strategy) to test my hypotheses?
+
+- For cross sectional correlation tests using regressions (controlling for confounders) refer to R_cross_sectional_data.Rmd
+- Panel regression (utilizing changes instead of levels)
+- Differences in differences (Focussing on a single change in time between groups that have similar time trajectories)
+
+### How can I operationalize the concepts in my hypotheses?
+
+Best thing would be to look at other papers and find out how they operationalize for example "preferences for redistribution" and make a study using the optimal operationalization four your research question. As we use secondary data, we cannot do that. We can only use what is there. This means we cannot have concepts in our hypotheses which are not in the data.
+
+Look up the question -> we have only got information about our main dependent Variable: "financial situation of respondents" from wave 6 onwards. Hence we restrict our analyses to wave 6-24. 
+
+Because we want to use multiple waves and each survey question has different variable names in each wave, we have to write down every variable name of each wave for all concepts we want to investigate (this could be also automated but we do it the simple way here)
+
+- finanzielle Situation 
+  - finanzielles auskommen aktuell W6_Q72,W7_Q69,W8_Q69,W9_Q70,W10_Q74,W11_Q83,W12_Q80,W13_Q68,W14_Q84,W15_Q63,W16_Q79,W17_Q72,W18_Q81,W19_Q71,W20_Q76,W21_Q86,W22_Q87,W23_Q81,W24_Q86
+
+- neuen Arbeitsmarktsituation
+  - Aenderung berufliche Situation: Home-Office W6_Q64A1,W7_Q61A1,W8_Q59A1,W9_Q62A1,
+                                W10_Q66A1,W11_Q73A1,W12_Q62A1,W13_Q60A1,W14_Q74A1,W15_Q55A1,W16_Q71A1,W17_Q64A1,
+                                W18_Q73A1,W19_Q61A1,W20_Q68A1,W21_Q78A1,W22_Q79A1,W23_Q71A1,W24_Q78A1
+  - Aenderung berufliche Situation: Abbau Zeitausgleich/Urlaub W6_Q64A2,W7_Q61A2,W8_Q59A2,W9_Q62A2,
+                                W10_Q66A2,W11_Q73A2,W12_Q62A2,W13_Q60A2,W14_Q74A2,W15_Q55A2,W16_Q71A2,W17_Q64A2,	
+                                W18_Q73A2,W19_Q61A2,W20_Q68A2,W21_Q78A2,W22_Q79A2,W23_Q71A2,W24_Q78A2,
+  - Aenderung berufliche Situation: Stundenaufstockung W6_Q64A4,W7_Q61A4,W8_Q59A4,W9_Q62A4,
+                                W10_Q66A4,W11_Q73A4,W12_Q62A4,W13_Q60A4,W14_Q74A4,W15_Q55A4,W16_Q71A4,W17_Q64A4,	
+                                W18_Q73A4,W19_Q61A4,W20_Q68A4,W21_Q78A4,W22_Q79A4,W23_Q71A4,W24_Q78A4
+  - Aenderung berufliche Situation: Kurzarbeit W6_Q64A5,W7_Q61A5,W8_Q59A5,W9_Q62A5,
+                                W10_Q66A5,W11_Q73A5,W12_Q62A5,W13_Q60A5,W14_Q74A5,W15_Q55A5,W16_Q71A5,W17_Q64A5,	
+                                W18_Q73A5,W19_Q61A5,W20_Q68A5,W21_Q78A5,W22_Q79A5,W23_Q71A5,W24_Q78A5
+  - Aenderung berufliche Situation: keine der genannten Aspekte W6_Q64A11,W7_Q61A11,W8_Q59A11,W9_Q62A11,
+                                W10_Q66A11,W11_Q73A11,W12_Q62A11,W13_Q60A11,W14_Q74A11,W15_Q55A11,W16_Q71A11,W17_Q64A11,	
+                                W18_Q73A11,W19_Q61A11,W20_Q68A11,W21_Q78A11,W22_Q79A11,W23_Q71A11,W24_Q78A11
+  - Aenderung berufliche Situation: keine Angabe W6_Q64A12,W7_Q61A12,W8_Q59A12,W9_Q62A12,
+                                W10_Q66A12,W11_Q73A12,W12_Q62A12,W13_Q60A12,W14_Q74A12,W15_Q55A12,W16_Q71A12,W17_Q64A12,	
+                                W18_Q73A12,W19_Q61A12,W20_Q68A12,W21_Q78A12,W22_Q79A12,W23_Q71A12,W24_Q78A12
+  - Aenderung berufliche Situation: Sonstiges (inkl. Kat. 3, 6, 7, 8, 9, 10) W6_Q64A13,W7_Q61A13,W8_Q59A13,W9_Q62A13,
+                                W10_Q66A13,W11_Q73A13,W12_Q62A13,W13_Q60A13,W14_Q74A13,W15_Q55A13,W16_Q71A13,W17_Q64A13,	
+                                W18_Q73A13,W19_Q61A13,W20_Q68A13,W21_Q78A13,W22_Q79A13,W23_Q71A13,W24_Q78A13
+                                
+- Vermögen
+  - EIGENTUM: HAUS/WOHNUNG, IN DER MAN LEBT SD_HOMEOWNER
+  - EIGENTUM: GESCHÄFT, UNTERNEHMEN, LANDWIRTSCHAFT ODER GRUNDSTÜCK SD_OWNER_BUSINESS
+  - EIGENTUM: VERMIETETE IMMOBILIE SD_OWNER_LEASEDPROPERTY
+  - EIGENTUM: SPARGUTHABEN SD_OWNER_SAVINGS 
+  - EIGENTUM: AKTIEN, WERTPAPIERE, FONDS ODER ANLEIHEN SD_OWNER_SHARES
+  - EIGENTUM: WOCHENENDHAUS, FERIENWOHNUNG,ETC. SD_OWNER_WEEKENDHOUSE
+  
+  Note that we do NOT have multiple observations of EIGENTUM over time. Hence we assume, that the amount of wealth of an individual stays roughly the same during the observation period. As indicated in the documentation questions on wealth have been introduced in wave 16. Thus, we do not have information on wealth of respondents who participated only in wave 1-15 and never after. Thus, we might want to calculate a robustness check using only data between wave 16 and 24. We do that because those missing and not missing before wave 16 might differ in ways that also relates to our variables we want to study which could bias our results.
+  
+### Think about potential confounders and the sample
+
+- Basic variables about the dataset
+  - RESPID (unique indicator of the respondent)
+  - W6_PANELIST ... W24_PANELIST (indicates whether a respondent filled in the questionnaire of wave 6)
+  - W6_WEIGHTD ... W24_WEIGHTD (demographische Gewichte für die Welle 6)
+  - W6_START_DATE ... W24_START_DATE (an welchem Tag wurde mit der beantwortung begonnen)
+
+- Control variables (potential confounder / sources of selection)
+  - Erwerbstaetigkeit aktuell: W6_Q11,W7_Q14,W8_Q11,W9_Q11,W10_Q11,W11_Q11,W12_Q11,W13_Q11,W14_Q11,W15_Q11,W16_Q11,W17_Q11,W18_Q11,W19_Q11,
+                                W20_Q11,W21_Q12,W22_Q11,W23_Q11,W24_Q11 
+  - Arbeitsstunden: Jetzt pro Woche: W6_Q60A1,W7_Q57A1,W8_Q55A1,W9_Q58A1,
+                                W10_Q62A1,W11_Q69A1,W12_Q63A1,W13_Q56A1,W14_Q70A1,W15_Q51A1,W16_Q67A1,W17_Q60A1,
+                                W18_Q69A1,W19_Q57A1,W20_Q64A1,W21_Q74A1,W22_Q75A1,W23_Q67A1,W24_Q74A1  
+  - Aktuelles persoenliches Einkommen: W6_Q66,W7_Q63,W8_Q61,W9_Q64,W10_Q68,W11_Q75,W12_Q74,W13_Q62,W14_Q76,W15_Q57,W16_Q73,W17_Q66,W18_Q75,W19_Q63,
+                                W20_Q70,W21_Q80,W22_Q81,W23_Q73,W24_Q80 
+  - Aktuelles Haushaltseinkommen: W6_Q70,W7_Q67,W8_Q65,W9_Q68,W10_Q72,W11_Q79,W12_Q78,W13_Q66,W14_Q80,W15_Q61,W16_Q77,W17_Q70,W18_Q79,W19_Q67,W20_Q74,W21_Q84,W22_Q85,W23_Q77,W24_Q84
+  
+  
+```{r subsetting the dataset}
+
+#to get a more workable dataset only select the variables we actually need and store it in a new dataframe
+
+dataset_r <- dataset %>% select(W6_Q72,W7_Q69,W8_Q69,W9_Q70,W10_Q74,W11_Q83,W12_Q80,W13_Q68,W14_Q84,W15_Q63,W16_Q79,W17_Q72,W18_Q81,W19_Q71,W20_Q76,W21_Q86,W22_Q87,W23_Q81,W24_Q86,
+                               
+                               W6_Q64A1,W7_Q61A1,W8_Q59A1,W9_Q62A1,
+                                W10_Q66A1,W11_Q73A1,W12_Q62A1,W13_Q60A1,W14_Q74A1,W15_Q55A1,W16_Q71A1,W17_Q64A1,
+                                W18_Q73A1,W19_Q61A1,W20_Q68A1,W21_Q78A1,W22_Q79A1,W23_Q71A1,W24_Q78A1,
+                               W6_Q64A2,W7_Q61A2,W8_Q59A2,W9_Q62A2,
+                                W10_Q66A2,W11_Q73A2,W12_Q62A2,W13_Q60A2,W14_Q74A2,W15_Q55A2,W16_Q71A2,W17_Q64A2,	
+                                W18_Q73A2,W19_Q61A2,W20_Q68A2,W21_Q78A2,W22_Q79A2,W23_Q71A2,W24_Q78A2,
+                               W6_Q64A4,W7_Q61A4,W8_Q59A4,W9_Q62A4,
+                                W10_Q66A4,W11_Q73A4,W12_Q62A4,W13_Q60A4,W14_Q74A4,W15_Q55A4,W16_Q71A4,W17_Q64A4,	
+                                W18_Q73A4,W19_Q61A4,W20_Q68A4,W21_Q78A4,W22_Q79A4,W23_Q71A4,W24_Q78A4,
+                               W6_Q64A5,W7_Q61A5,W8_Q59A5,W9_Q62A5,
+                                W10_Q66A5,W11_Q73A5,W12_Q62A5,W13_Q60A5,W14_Q74A5,W15_Q55A5,W16_Q71A5,W17_Q64A5,	
+                                W18_Q73A5,W19_Q61A5,W20_Q68A5,W21_Q78A5,W22_Q79A5,W23_Q71A5,W24_Q78A5,
+                               W6_Q64A11,W7_Q61A11,W8_Q59A11,W9_Q62A11,
+                                W10_Q66A11,W11_Q73A11,W12_Q62A11,W13_Q60A11,W14_Q74A11,W15_Q55A11,W16_Q71A11,W17_Q64A11,	
+                                W18_Q73A11,W19_Q61A11,W20_Q68A11,W21_Q78A11,W22_Q79A11,W23_Q71A11,W24_Q78A11,
+                               W6_Q64A12,W7_Q61A12,W8_Q59A12,W9_Q62A12,
+                                W10_Q66A12,W11_Q73A12,W12_Q62A12,W13_Q60A12,W14_Q74A12,W15_Q55A12,W16_Q71A12,W17_Q64A12,	
+                                W18_Q73A12,W19_Q61A12,W20_Q68A12,W21_Q78A12,W22_Q79A12,W23_Q71A12,W24_Q78A12,
+                               W6_Q64A13,W7_Q61A13,W8_Q59A13,W9_Q62A13,
+                                W10_Q66A13,W11_Q73A13,W12_Q62A13,W13_Q60A13,W14_Q74A13,W15_Q55A13,W16_Q71A13,W17_Q64A13,	
+                                W18_Q73A13,W19_Q61A13,W20_Q68A13,W21_Q78A13,W22_Q79A13,W23_Q71A13,W24_Q78A13,
+          
+                                SD_HOMEOWNER,SD_OWNER_BUSINESS,SD_OWNER_LEASEDPROPERTY,SD_OWNER_SAVINGS,SD_OWNER_SHARES,SD_OWNER_WEEKENDHOUSE,
+                                RESPID,
+                               
+                               W6_PANELIST,W7_PANELIST,W8_PANELIST,W9_PANELIST,W10_PANELIST,
+                               W11_PANELIST,W12_PANELIST,W13_PANELIST,W14_PANELIST,W15_PANELIST,W16_PANELIST,W17_PANELIST,W18_PANELIST,W19_PANELIST,
+                               W20_PANELIST,W21_PANELIST,W22_PANELIST,W23_PANELIST,W24_PANELIST,
+                               
+                               W6_WEIGHTD,W7_WEIGHTD,W8_WEIGHTD,W9_WEIGHTD,
+                               W10_WEIGHTD,W11_WEIGHTD,W12_WEIGHTD,W13_WEIGHTD,W14_WEIGHTD,W15_WEIGHTD,W16_WEIGHTD,W17_WEIGHTD,W18_WEIGHTD,W19_WEIGHTD,
+                               W20_WEIGHTD,W21_WEIGHTD,W22_WEIGHTD,W23_WEIGHTD,W24_WEIGHTD,
+                               
+                               W6_START_DATE,W7_START_DATE,W8_START_DATE,W9_START_DATE,
+                               W10_START_DATE,W11_START_DATE,W12_START_DATE,W13_START_DATE,W14_START_DATE,W15_START_DATE,W16_START_DATE,W17_START_DATE,W18_START_DATE,W19_START_DATE,
+                               W20_START_DATE,W21_START_DATE,W22_START_DATE,W23_START_DATE,W24_START_DATE,
+                               
+                               
+                               W6_Q11,W7_Q14,W8_Q11,W9_Q11,W10_Q11,W11_Q11,W12_Q11,W13_Q11,W14_Q11,W15_Q11,W16_Q11,W17_Q11,W18_Q11,W19_Q11,
+                                W20_Q11,W21_Q12,W22_Q11,W23_Q11,W24_Q11,
+                               
+                               #I'm not doing the control variables in this example, hence i will not include them in the dataset
+                               # W6_Q60A1,W7_Q57A1,W8_Q55A1,W9_Q58A1,
+                               #  W10_Q62A1,W11_Q69A1,W12_Q63A1,W13_Q56A1,W14_Q70A1,W15_Q51A1,W16_Q67A1,W17_Q60A1,
+                               #  W18_Q69A1,W19_Q57A1,W20_Q64A1,W21_Q74A1,W22_Q75A1,W23_Q67A1,W24_Q74A1,
+                               # 
+                               # W6_Q66,W7_Q63,W8_Q61,W9_Q64,W10_Q68,W11_Q75,W12_Q74,W13_Q62,W14_Q76,W15_Q57,W16_Q73,W17_Q66,W18_Q75,W19_Q63,
+                               #  W20_Q70,W21_Q80,W22_Q81,W23_Q73,W24_Q80,
+                               # W6_Q70,W7_Q67,W8_Q65,W9_Q68,W10_Q72,W11_Q79,W12_Q78,W13_Q66,W14_Q80,W15_Q61,W16_Q77,W17_Q70,W18_Q79,W19_Q67,W20_Q74,W21_Q84,W22_Q85,W23_Q77,W24_Q84
+                               )
+
+ncol(dataset_r) #now we have only the 235 variables in the dataset that we indent to use
+
+# we will drop respondents that only participated in waves 1-5 later
+
+```
+
+## From wide to long
+
+We now have a dataset containing only those variables we actually need. But we have  similar problems compared to the cross sectional data: The coding of these variables can be different from what we would want. For example R can interpret numeric values as characters or make factor variables out of variables we want to use as in a continuous form. Furthermore, sometimes we want want certain variables recoded (e.g. not differentiating between public and private employees in the variable indicating labor market status) or generate new variables from others (e.g. generating a wealth index from the various wealth indicators in the dataset). 
+
+In addition it is impracticable to have different variable names for the same variable. For example the variable "Finanizielles Auskommen" in wave 6 and 7differs not only because of the prefix "W6_" "W7_" but also because the rest is different: "W6_Q72","W7_Q69". In this form we cannot easily switch between long and wide data and R does not know which colums contain similair variables measured in different waves. 
+
+The following code looks renames the variables and afterwards generates a long dataset which is more handy when it comes to recoding the data (as the amount of variables gets reduced drastically). 
+
+```{r looking at the data and recoding}
+#note you can select multible lines at once if you hold the alt key and then select lines by dragging with the mouse to create a selection
+
+#Finanzielles Auskommen
+dataset_r<-dataset_r %>% rename(W6_fin_ausk_akt = W6_Q72,
+                                W7_fin_ausk_akt = W7_Q69,
+                                W8_fin_ausk_akt = W8_Q69,
+                                W9_fin_ausk_akt = W9_Q70,
+                                W10_fin_ausk_akt = W10_Q74,
+                                W11_fin_ausk_akt = W11_Q83,
+                                W12_fin_ausk_akt = W12_Q80,
+                                W13_fin_ausk_akt = W13_Q68,
+                                W14_fin_ausk_akt = W14_Q84,
+                                W15_fin_ausk_akt = W15_Q63,
+                                W16_fin_ausk_akt = W16_Q79,
+                                W17_fin_ausk_akt = W17_Q72,
+                                W18_fin_ausk_akt = W18_Q81,
+                                W19_fin_ausk_akt = W19_Q71,
+                                W20_fin_ausk_akt = W20_Q76,
+                                W21_fin_ausk_akt = W21_Q86,
+                                W22_fin_ausk_akt = W22_Q87,
+                                W23_fin_ausk_akt = W23_Q81,
+                                W24_fin_ausk_akt = W24_Q86)
+
+
+# Berufsstatus aktuell
+dataset_r<-dataset_r %>% rename(W6_berufst = W6_Q11,
+                                W7_berufst = W7_Q14,
+                                W8_berufst = W8_Q11,
+                                W9_berufst = W9_Q11,
+                                W10_berufst = W10_Q11,
+                                W11_berufst = W11_Q11,
+                                W12_berufst = W12_Q11,
+                                W13_berufst = W13_Q11,
+                                W14_berufst = W14_Q11,
+                                W15_berufst = W15_Q11,
+                                W16_berufst = W16_Q11,
+                                W17_berufst = W17_Q11,
+                                W18_berufst = W18_Q11,
+                                W19_berufst = W19_Q11,
+                                W20_berufst = W20_Q11,
+                                W21_berufst = W21_Q12,
+                                W22_berufst = W22_Q11,
+                                W23_berufst = W23_Q11,
+                                W24_berufst = W24_Q11)
+
+#Aenderung berufliche Situation: Home-Office 
+
+dataset_r<-dataset_r %>% rename(W6_berufa_home = W6_Q64A1,
+                                          W7_berufa_home = W7_Q61A1,
+                                          W8_berufa_home = W8_Q59A1,
+                                          W9_berufa_home = W9_Q62A1,
+                                          W10_berufa_home =  W10_Q66A1,
+                                          W11_berufa_home =  W11_Q73A1,
+                                          W12_berufa_home =  W12_Q62A1,
+                                          W13_berufa_home =  W13_Q60A1,
+                                          W14_berufa_home =  W14_Q74A1,
+                                          W15_berufa_home =  W15_Q55A1,
+                                          W16_berufa_home =  W16_Q71A1,
+                                          W17_berufa_home =  W17_Q64A1,
+                                          W18_berufa_home =  W18_Q73A1,
+                                          W19_berufa_home =  W19_Q61A1,
+                                          W20_berufa_home =  W20_Q68A1,
+                                          W21_berufa_home =  W21_Q78A1,
+                                          W22_berufa_home =  W22_Q79A1,
+                                          W23_berufa_home =  W23_Q71A1,
+                                          W24_berufa_home =  W24_Q78A1,
+                                          
+#Aenderung berufliche Situation: Abbau Zeitausgleich/Urlaub   
+
+                                          W6_berufa_urla = W6_Q64A2,
+                                          W7_berufa_urla = W7_Q61A2,
+                                          W8_berufa_urla = W8_Q59A2,
+                                          W9_berufa_urla = W9_Q62A2,
+                                          W10_berufa_urla = W10_Q66A2,
+                                          W11_berufa_urla = W11_Q73A2,
+                                          W12_berufa_urla = W12_Q62A2,
+                                          W13_berufa_urla = W13_Q60A2,
+                                          W14_berufa_urla = W14_Q74A2,
+                                          W15_berufa_urla = W15_Q55A2,
+                                          W16_berufa_urla = W16_Q71A2,
+                                          W17_berufa_urla = W17_Q64A2,
+                                          W18_berufa_urla = W18_Q73A2,
+                                          W19_berufa_urla = W19_Q61A2,
+                                          W20_berufa_urla = W20_Q68A2,
+                                          W21_berufa_urla = W21_Q78A2,
+                                          W22_berufa_urla = W22_Q79A2,
+                                          W23_berufa_urla = W23_Q71A2,
+                                          W24_berufa_urla = W24_Q78A2,
+                                          
+#Aenderung berufliche Situation: Stundenaufstockung
+
+                                          W6_berufa_aufs = W6_Q64A4,
+                                          W7_berufa_aufs = W7_Q61A4,
+                                          W8_berufa_aufs = W8_Q59A4,
+                                          W9_berufa_aufs = W9_Q62A4,
+                                          W10_berufa_aufs = W10_Q66A4,
+                                          W11_berufa_aufs = W11_Q73A4,
+                                          W12_berufa_aufs = W12_Q62A4,
+                                          W13_berufa_aufs = W13_Q60A4,
+                                          W14_berufa_aufs = W14_Q74A4,
+                                          W15_berufa_aufs = W15_Q55A4,
+                                          W16_berufa_aufs = W16_Q71A4,
+                                          W17_berufa_aufs = W17_Q64A4,
+                                          W18_berufa_aufs = W18_Q73A4,
+                                          W19_berufa_aufs = W19_Q61A4,
+                                          W20_berufa_aufs = W20_Q68A4,
+                                          W21_berufa_aufs = W21_Q78A4,
+                                          W22_berufa_aufs = W22_Q79A4,
+                                          W23_berufa_aufs = W23_Q71A4,
+                                          W24_berufa_aufs = W24_Q78A4,
+
+#Aenderung berufliche Situation: Kurzarbeit
+                                          
+                                          W6_berufa_kurz = W6_Q64A5,
+                                          W7_berufa_kurz = W7_Q61A5,
+                                          W8_berufa_kurz = W8_Q59A5,
+                                          W9_berufa_kurz = W9_Q62A5,
+                                          W10_berufa_kurz = W10_Q66A5,
+                                          W11_berufa_kurz = W11_Q73A5,
+                                          W12_berufa_kurz = W12_Q62A5,
+                                          W13_berufa_kurz = W13_Q60A5,
+                                          W14_berufa_kurz = W14_Q74A5,
+                                          W15_berufa_kurz = W15_Q55A5,
+                                          W16_berufa_kurz = W16_Q71A5,
+                                          W17_berufa_kurz = W17_Q64A5,
+                                          W18_berufa_kurz = W18_Q73A5,
+                                          W19_berufa_kurz = W19_Q61A5,
+                                          W20_berufa_kurz = W20_Q68A5,
+                                          W21_berufa_kurz = W21_Q78A5,
+                                          W22_berufa_kurz = W22_Q79A5,
+                                          W23_berufa_kurz = W23_Q71A5,
+                                          W24_berufa_kurz = W24_Q78A5,
+
+#Aenderung berufliche Situation: keine der genannten Aspekte 
+
+                                          W6_berufa_kaen = W6_Q64A11,
+                                          W7_berufa_kaen = W7_Q61A11,
+                                          W8_berufa_kaen = W8_Q59A11,
+                                          W9_berufa_kaen = W9_Q62A11,
+                                          W10_berufa_kaen = W10_Q66A11,
+                                          W11_berufa_kaen = W11_Q73A11,
+                                          W12_berufa_kaen = W12_Q62A11,
+                                          W13_berufa_kaen = W13_Q60A11,
+                                          W14_berufa_kaen = W14_Q74A11,
+                                          W15_berufa_kaen = W15_Q55A11,
+                                          W16_berufa_kaen = W16_Q71A11,
+                                          W17_berufa_kaen = W17_Q64A11,
+                                          W18_berufa_kaen = W18_Q73A11,
+                                          W19_berufa_kaen = W19_Q61A11,
+                                          W20_berufa_kaen = W20_Q68A11,
+                                          W21_berufa_kaen = W21_Q78A11,
+                                          W22_berufa_kaen = W22_Q79A11,
+                                          W23_berufa_kaen = W23_Q71A11,
+                                          W24_berufa_kaen = W24_Q78A11,
+
+#Aenderung berufliche Situation: keine Angabe 
+
+                                          W6_berufa_kang = W6_Q64A12,
+                                          W7_berufa_kang = W7_Q61A12,
+                                          W8_berufa_kang = W8_Q59A12,
+                                          W9_berufa_kang = W9_Q62A12,
+                                          W10_berufa_kang = W10_Q66A12,
+                                          W11_berufa_kang = W11_Q73A12,
+                                          W12_berufa_kang = W12_Q62A12,
+                                          W13_berufa_kang = W13_Q60A12,
+                                          W14_berufa_kang = W14_Q74A12,
+                                          W15_berufa_kang = W15_Q55A12,
+                                          W16_berufa_kang = W16_Q71A12,
+                                          W17_berufa_kang = W17_Q64A12,
+                                          W18_berufa_kang = W18_Q73A12,
+                                          W19_berufa_kang = W19_Q61A12,
+                                          W20_berufa_kang = W20_Q68A12,
+                                          W21_berufa_kang = W21_Q78A12,
+                                          W22_berufa_kang = W22_Q79A12,
+                                          W23_berufa_kang = W23_Q71A12,
+                                          W24_berufa_kang = W24_Q78A12,
+
+                                
+# Aenderung berufliche Situation: Sonstiges (inkl. Kat. 3, 6, 7, 8, 9, 10) 
+
+                                          W6_berufa_sons = W6_Q64A13,
+                                          W7_berufa_sons = W7_Q61A13,
+                                          W8_berufa_sons = W8_Q59A13,
+                                          W9_berufa_sons = W9_Q62A13,
+                                          W10_berufa_sons = W10_Q66A13,
+                                          W11_berufa_sons = W11_Q73A13,
+                                          W12_berufa_sons = W12_Q62A13,
+                                          W13_berufa_sons = W13_Q60A13,
+                                          W14_berufa_sons = W14_Q74A13,
+                                          W15_berufa_sons = W15_Q55A13,
+                                          W16_berufa_sons = W16_Q71A13,
+                                          W17_berufa_sons = W17_Q64A13,
+                                          W18_berufa_sons = W18_Q73A13,
+                                          W19_berufa_sons = W19_Q61A13,
+                                          W20_berufa_sons = W20_Q68A13,
+                                          W21_berufa_sons = W21_Q78A13,
+                                          W22_berufa_sons = W22_Q79A13,
+                                          W23_berufa_sons = W23_Q71A13,
+                                          W24_berufa_sons = W24_Q78A13)
+
+#generate a variable that indicates when a respondent first entered the panel
+
+dataset_r <- dataset_r %>% mutate(Panelfirst = ifelse(W6_PANELIST %in% 1,6,
+                                               ifelse(W7_PANELIST %in% 1,7,
+                                               ifelse(W8_PANELIST %in% 1,8,
+                                               ifelse(W9_PANELIST %in% 1,9,
+                                               ifelse(W10_PANELIST %in% 1,10,
+                                               ifelse(W11_PANELIST %in% 1,11,
+                                               ifelse(W12_PANELIST %in% 1,12,
+                                               ifelse(W13_PANELIST %in% 1,13,
+                                               ifelse(W14_PANELIST %in% 1,14,
+                                               ifelse(W15_PANELIST %in% 1,15,
+                                               ifelse(W16_PANELIST %in% 1,16,
+                                               ifelse(W17_PANELIST %in% 1,17,
+                                               ifelse(W18_PANELIST %in% 1,18,
+                                               ifelse(W19_PANELIST %in% 1,19,
+                                               ifelse(W20_PANELIST %in% 1,20,
+                                               ifelse(W21_PANELIST %in% 1,21,
+                                               ifelse(W22_PANELIST %in% 1,22,
+                                               ifelse(W23_PANELIST %in% 1,23,
+                                               ifelse(W24_PANELIST %in% 1,24,NA))))))))))))))))))))
+
+# reshape the dataset from wide to long (uses the Panelr package). This can take a few seconds.
+
+dataset_r_long <- long_panel(dataset_r, prefix = "W", suffix = "_", label_location = "beginning",
+           begin = 6, end = 24) # the letter beofre the indicator number is "W" , the letter after it is "_" + start at the beginning searching for these + the waves start at 6 an end at 24
+
+# Let's look at this new dataset: 
+
+glimpse(dataset_r_long)
+
+# As we can see we now have much less columns and many more rows in the dataset. In fact it is easy to calculate that we get 57,342 rows in our dataset because we have 3,018 individuals in (24-5) = 19 waves. Hence 3,018 * 19 = 57,342 observations. 
+
+# Now we can easily restrict our dataset to individuals that actually participated in at least one of the waves
+
+dataset_r_long_r <- dataset_r_long %>% group_by(id) %>% filter(!is.na(PANELIST))
+
+dataset_r_long_r %>% ungroup() %>% summarise( n=n_distinct(id)) # we get 2870 individuals from the 3018 in the original dataset -> the function n_distinct counts all distinct numbers of id
+
+# Afterwards we also restrict the dataset to only show observations in which participants actually participated e.g. if person x only participated in wave 7 and 8 delete rows belonging to wave 6 and 9-24. We can use the start_date as simple indicator wether a person participated
+
+dataset_r_long_r <- dataset_r_long_r %>% ungroup() %>% filter(!is.na(START_DATE))
+
+# This again reduces the rows in the dataset drastically to 29396. We now know that on average each respondent participates in 29396/2870 = 10.2 waves. That is, a little bit more than 50% of the waves.
+
+```
+
+## Recoding the variables
+
+Now we look at the different variables in long format, recode them to be used to test our hypotheses and check whether the different recodings are correct. Note, that this recoding is nearly identical to the cross-sectional example because recoding the dataset to long beforehand does all the heavy lifting with regard to the many observations per wave for us.
+
+```{r looking at the data and recoding}
+# two things are important here: we sometimes will want the numeric value of a variable and sometimes it's factor level and 2 we sometimes want to have missing values included in the data and sometimes not (especially when we do calculations with this variable)
+
+dataset_r_rec<-dataset_r_long_r %>% ungroup() %>%
+                                    mutate(fin_aus_akt_n = ifelse(as.numeric(fin_ausk_akt)<6,as.numeric(fin_ausk_akt),NA),
+                                           fin_aus_akt_f = as_factor(fin_ausk_akt)
+                                    )
+
+#again I can check my recoding: 
+table(dataset_r_rec$fin_aus_akt_n)
+
+#even better:
+table(dataset_r_rec$fin_aus_akt_n,dataset_r_rec$fin_ausk_akt, useNA="always") # first variable is columns
+
+#or
+table(dataset_r_rec$fin_aus_akt_n,as_factor(dataset_r_rec$fin_ausk_akt), useNA="always") # first variable is columns
+
+# note that the variable goes from 1= sehr gross to 5 = sehr klein. Thus higher values indicate less perceived economic threats this seems counter intuitive. Let's change that:
+
+dataset_r_rec<-dataset_r_rec %>% mutate(fin_aus_akt_n = 5-fin_aus_akt_n)
+
+table(dataset_r_rec$fin_aus_akt_n,as_factor(dataset_r_rec$fin_ausk_akt), useNA="always") # now 0 indicates sehr kleine Gefahr and 4 indicates sehr grosse gefahr
+# we also changed it at the same time for fin_aus_akt_n as here too higher values indicated less ability to cope with the financial assets one has
+
+#Vermögen:
+
+# as we have many indicators on what people wither have or don't have lets make a sum index = 0 if an individual has none of the assets and 5 if and individual has all assets
+
+# think of the advantages and disadvantages here
+
+table(dataset_r_rec$SD_HOMEOWNER, useNA="always")
+table(as_factor(dataset_r_rec$SD_HOMEOWNER), useNA="always") # 1 = ja, 2= no, else NA , note that a substantial part of the sample have NA in this question: the reason here is that this question was only introduced later on in the survey and not all got this question
+
+dataset_r_rec<-dataset_r_rec %>% mutate(ase_hom_n = 2-(ifelse(as.numeric(SD_HOMEOWNER)<3,as.numeric(SD_HOMEOWNER),NA)),
+                                        ase_bus_n = 2-(ifelse(as.numeric(SD_OWNER_BUSINESS)<3,as.numeric(SD_OWNER_BUSINESS),NA)),
+                                        ase_pro_n = 2-(ifelse(as.numeric(SD_OWNER_LEASEDPROPERTY)<3,as.numeric(SD_OWNER_LEASEDPROPERTY),NA)),
+                                        ase_sav_n = 2-(ifelse(as.numeric(SD_OWNER_SAVINGS)<3,as.numeric(SD_OWNER_SAVINGS),NA)),
+                                        ase_sha_n = 2-(ifelse(as.numeric(SD_OWNER_SHARES)<3,as.numeric(SD_OWNER_SHARES),NA)),
+                                        ase_who_n = 2-(ifelse(as.numeric(SD_OWNER_WEEKENDHOUSE)<3,as.numeric(SD_OWNER_WEEKENDHOUSE),NA)),
+                                        
+                                        ase_sum_n = ase_hom_n + ase_bus_n + ase_pro_n + ase_sav_n + ase_sha_n + ase_who_n,
+                                        )
+
+
+#check recoding
+table(dataset_r_rec$ase_hom_n,as_factor(dataset_r_rec$SD_HOMEOWNER), useNA="always") 
+
+table(dataset_r_rec$ase_sum_n, useNA="always") # quite a substantial share of missing values -> think about why the share of missing values is even higher than for SD_HOMEOWNER alone
+
+#however these are observations but wealth is measured only once per individual. Thus we only know that wealth is missing for 9404 observations of 29396 total observations (32%). To get an idea for how many individuals the wealth variable is missing we have to first select only one value per individual and then make a table.
+
+testtable<-dataset_r_rec %>% group_by(id) %>% summarise(ase_sum_n=mean(ase_sum_n))
+table(testtable$ase_sum_n, useNA="always") # We see that wealth is missing for 1325 of 2870 respondents (46%). Thus, we know that wealth is more likely to miss for respondents that participated less often in the survey. 
+
+# labor market status
+
+# this is one of the most "complicated variables" -> first look at the questionnaire it says that only those with .. get the question on ..
+
+# most general first option is to create a "super status variable" that combines the general labor market status question and the follow up questions
+
+#first let us get an idea about the levels and codes in these variables
+table(as_factor(dataset_r_rec$berufst), useNA="always") 
+table(as.numeric(dataset_r_rec$berufst), useNA="always") 
+
+table(as_factor(dataset_r_rec$berufa_home), useNA="always") 
+table(as.numeric(dataset_r_rec$berufa_home), useNA="always") 
+
+#when looking at the cross table one easily sees that not everyone got the follow up questions
+table(as_factor(dataset_r_rec$berufst),as_factor(dataset_r_rec$berufa_home), useNA="always") 
+
+#lets think about the coding and structure we want to have in our new variable current labor market status: lab_sta_cur
+
+# 0 = (Un)selbststaendig erwerbstaetig (=privat+oeff+selbst) + only those not in Home Office (berufa_home) and not in Kurzarbeit (berufa_kurz)
+# 1 = (Un)selbststaendig erwerbstaetig (=privat+oeff+selbst) + Kurzarbeit 
+# 2 = (Un)selbststaendig erwerbstaetig (=privat+oeff+selbst) + Home-Office (nur wenn nicht Kurzarbeit)
+# 3 = Arbeitslos
+# 4 = Pensionist*in
+# 5 = in Ausbildung (Schueler/in, Student/in, Bildungskarenz)
+# 6 = Sonstige (Ausschliesslich haushaltsfuehrend, Sonstiges, In Elternkarenz)
+# NA= Keine Angabe
+
+dataset_r_rec<-dataset_r_rec %>% mutate(lab_sta_cur = ifelse(as.numeric(berufst)<4 & !(as.numeric(berufa_home) %in% 1) & !(as.numeric(berufa_kurz) %in% 1), 0,
+                                        ifelse(as.numeric(berufst)<4 & (as.numeric(berufa_kurz) %in% 1), 1,
+                                        ifelse(as.numeric(berufst)<4 & (as.numeric(berufa_home) %in% 1) & !(as.numeric(berufa_kurz) %in% 1), 2,
+                                        ifelse(as.numeric(berufst)==4,3,
+                                        ifelse(as.numeric(berufst)==5,4,
+                                        ifelse(as.numeric(berufst)==7,5,
+                                        ifelse(as.numeric(berufst)==6 | as.numeric(berufst)==8 | as.numeric(berufst)==10,6,
+                                               NA)))))))
+                                        )
+
+table(dataset_r_rec$lab_sta_cur, useNA="always")
+
+dataset_r_rec$lab_sta_cur<-as.factor(dataset_r_rec$lab_sta_cur)
+levels(dataset_r_rec$lab_sta_cur)<-c("(Un)selbststaendig erwerbstaetig","in Kurzarbeit","in Home Office","Arbeitslos","in Pension","in Ausbildung","Sonstige")
+
+table(dataset_r_rec$berufst,dataset_r_rec$lab_sta_cur, useNA="always")
+
+#CONTROLS
+
+
+```
+  
+## Weighted summary statistics and graphs
+
+To calculate summary statistics (means, shares, subgroup differences etc.) that provide insights about characteristics in the target population (and not only about the sample), we have to weight the data. In our case we can "only" do that using poststratification weights. The following code exemplifies this with the answer shares of our dependent variable: financial satisfaction. First we weight the data using the package srvyr and export a summary table. Then we display these answer shares in a visual form using ggplot. As we use panel data here we will produce multible means for each wave at once. 
+
+```{r weighted summary statistics and figures}
+
+data_sum_N<-dataset_r_rec %>% filter(!is.na(fin_aus_akt_f)) %>%  # only use individuals with not NA fin_aus_akt_f (in our case this does nothing because all individuals have valid answers for fin_aus_akt_f)
+ group_by(wave) %>% tally() # group the data by wave + count all cases (individuals) in this dataset within each wave
+
+data_sum_N # we have N= 1551...1581 individuals with a valid answer for fin_aus_akt_f in the dataset
+
+# calculated weighted shares of answers to get a better understanding of what the distribution of answers could be in the population (Grundgesamtheit) and not only in the sample
+
+# basically we might have more answers from older people than of younger ones -> hence our sample answer shares represent more the financial situation of older than of younger people. However, we in this case want to see what the answer shares would be if we would have the same age distribution as in the Austrian target population. Thus, we weight answers of younger individuals to be more important for the overall mean answers to account for the fact that we have less younger individuals in our sample compared to the Austrian target population. 
+
+#Fortunately these weights are already counted for us and we can directly use them. What characteristics have been used for the calculation of these weights can be found in the method report (here gender, age, gender X age, education, region (Bundesland), employment status, household size, and migration background). As well as the source of the information on the target population (in our case Statistik Austria).
+
+#Weights have been calculated by wave that means we can weight the data and then regroup by wave and we get accurate wave averages. 
+
+data_sum<-dataset_r_rec %>% filter(!is.na(fin_aus_akt_f)) %>% # again use only valid cases in the dataset
+  as_survey_design(weights = c(WEIGHTD)) %>% # weight the data using the srvyr package
+  group_by(wave, fin_aus_akt_f) %>% # group the data by wave and the values (in this case factor levels) of fin_aus_akt_f
+  summarise(n=survey_total(,vartype = c("se")))  %>% # calculate summary statistics (weighted answer shares n) of all these categories and also include the standard errors
+     mutate(prop = n/sum(n),ymax=prop+1.96*sqrt((prop*(1-prop))/sum(n)), ymin=prop-1.96*sqrt((prop*(1-prop))/sum(n))) # calculate the answer share = prop as the answers shares within a category n divided by the total answers, calculate upper and lower confidence intervals using the standard errors 
+
+#N=
+data_sum_exp <- data_sum %>% 
+  mutate(prop=round(prop,2),
+  ymax=round(ymax,3),
+  ymin=round(ymin,3)
+  ) %>% 
+  select(wave,fin_aus_akt_f,prop,ymax,ymin) %>%
+  left_join(data_sum_N,by="wave") # here we merge the right sample sum N in data_sum_N to the right wave in data_sum
+
+#Export this table in .csv format
+write.csv(data_sum_exp, "./output/tables/summarytable_fin_panel.csv", na = "NA")
+
+####
+# Bar Graph
+# Basic ggplot code
+#### 
+
+# Refer to Rcross_sectional_data for a step by step intro to bar graphs using ggplot in R
+
+newfillp5<-c(brewer.pal(5, name="RdYlBu")[5:1],brewer.pal(3, name="Greys")[c(2,3)]) # generate new color palette
+
+ggplot(data_sum, aes(fill=fin_aus_akt_f,x=fin_aus_akt_f, y=prop)) + 
+    geom_bar(position="identity", show.legend = FALSE,stat = "identity", width=0.7) +
+    geom_text(aes(label=round(prop*100, digits = 1)), position=position_stack(vjust=0.5), color="black", size=2) +
+    facet_wrap(~wave) + # generate separate panes for each wave
+    scale_fill_manual(values=newfillp5) + 
+    labs(y = "Anteil der Befragten", x= "Finanzielles Auskommen",fill="") + 
+    scale_y_continuous(labels = scales::percent_format(accuracy = 1),limits = c(0,.5),breaks = seq(0, .5, by = .1)) +
+    theme_hc() +
+    theme(legend.position="bottom") + 
+    guides(fill=guide_legend(ncol=5,nrow=2,byrow=TRUE)) + 
+    #scale_x_discrete(guide = guide_axis(n.dodge = 2)) +
+    theme(axis.text.x  = element_text(angle=90, hjust = 1)) 
+
+
+# Does not look too good so let's compromise a little bit and stack the bar graph instead of making new panes for each wave
+
+ggplot(data_sum, aes(fill=fin_aus_akt_f,x=as.factor(wave), y=prop)) + 
+    geom_bar(position= position_fill(reverse = TRUE), show.legend = TRUE,stat = "identity", width=0.7) + # here i use position_fill to indicate that i want to stack the graph and i set reverse = true to put avoiding answers on top which looks nicer
+    geom_text(aes(label=round(prop*100, digits = 0)), position=position_stack(vjust=0.5, reverse = TRUE), color="black", size=2) +
+    scale_fill_manual(values=newfillp5) + 
+    labs(y = "Anteil der Befragten", x= "Fragewelle",fill="") + 
+    scale_y_continuous(labels = scales::percent_format(accuracy = 1),limits = c(0,1.01),breaks = seq(0, 1, by = .25)) +
+    theme_hc() +
+    theme(legend.position="bottom") + 
+    guides(fill=guide_legend(ncol=5,nrow=2,byrow=TRUE)) 
+
+
+ggsave("./output/figures/Figure1_panel.png", units="in", width=9.3, height=4, type="cairo-png") # save the graph as png file using this size in inches, flatten the edges using cairo. Note that you have to run this line at the same time you are running the ggplot code
+
+#ggsave("./output/figures/Figure1.png", units="in", width=7, height=4) # if cairo does not work on your PC use this
+
+
+```
+
+## Descriptive overview of our main target relationship
+
+We are not only interested in the answer share of our dependent variable but how these answers relate to our independent variables of interest. The following code calculates the weighted average financial satisfaction dependent on the labor market status of the individuals. We export these results in form of a table and of a scatterplot with confidence intervals of the means. These results provide us with a first descriptive overview about the relationship between these two variables (financial satisfaction and labor market status) in the data. Afterwards we calculate a second graph showing the development of average financial satisfaction over time depending on the number of asserts of individuals.  
+
+```{r basic relationships between 2 variables}
+
+data_sum_N<-dataset_r_rec %>% filter(!is.na(fin_aus_akt_n) & !is.na(lab_sta_cur)) %>%  # only use individuals with not NA both of our individuals of interest
+ group_by(wave) %>% tally()
+
+data_sum_N
+
+data_mean <- dataset_r_rec  %>% filter(!is.na(fin_aus_akt_n) & !is.na(lab_sta_cur)) %>%
+  as_survey_design(weights = c(WEIGHTD)) %>%
+  group_by(lab_sta_cur, wave) %>% # group the data by the levels in the variable lab_sta_cur
+  summarise(mean=survey_mean(fin_aus_akt_n,vartype = c("se"))) %>% # calculate the weighted mean
+  group_by(lab_sta_cur) %>%
+     mutate(ymax=mean+1.96*mean_se, ymin=mean-1.96*mean_se) # calculate the aprox. upper and lower tail of the 95% confidence interval
+
+data_mean_exp <- data_mean %>% 
+  mutate(mean=round(mean,2),
+  ymax=round(ymax,3),
+  ymin=round(ymin,3)
+  ) %>% 
+  select(wave,lab_sta_cur,mean,ymax,ymin) %>%
+  left_join(data_sum_N,by="wave") # here we merge the right sample sum N in data_sum_N to the right wave in data_sum
+
+#Export this table in .csv format
+write.csv(data_mean_exp, "./output/tables/meantable_fin_panel.csv", na = "NA")
+
+#display the means in form of a scatterplot
+
+ggplot(data_mean, aes(color=lab_sta_cur,x=as.factor(wave), y=mean)) + #color instead of fill because points have colors and no fill
+    geom_point(position="identity", show.legend = FALSE,stat = "identity") + #geom_point instead of geom_bar
+    geom_line(aes(group=lab_sta_cur)) +
+    geom_errorbar(aes(ymin=ymin,ymax=ymax),width=.1, show.legend = FALSE) + # add sescond geometric shape in form of errorbars in addition to the points indicating the means
+    labs(y = "Durchschnittliches finanzielles Auskommen\n0=sehr schwer - 4=sehr gut", x= "Arbeitsmarktstatus",color="") + 
+    scale_y_continuous(limits = c(0,4),breaks = seq(0, 4, by = 1)) +
+    theme_hc() +
+    scale_x_discrete(guide = guide_axis(n.dodge = 2))
+
+
+# A second graph
+
+data_mean <- dataset_r_rec  %>% filter(!is.na(fin_aus_akt_n) & !is.na(ase_sum_n)) %>%
+  as_survey_design(weights = c(WEIGHTD)) %>%
+  group_by(ase_sum_n, wave) %>% # group the data by the levels in the variable lab_sta_cur
+  summarise(mean=survey_mean(fin_aus_akt_n,vartype = c("se"))) %>% # calculate the weighted mean
+  group_by(ase_sum_n) %>%
+     mutate(ymax=mean+1.96*mean_se, ymin=mean-1.96*mean_se) # calculate the aprox. upper and lower tail of the 95% confidence interval
+
+ggplot(data_mean, aes(color=as.factor(ase_sum_n),ase_sum_n,x=as.factor(wave), y=mean)) + #color instead of fill because points have colors and no fill
+    geom_point(position="identity", show.legend = FALSE,stat = "identity") + #geom_point instead of geom_bar
+    geom_line(aes(group=ase_sum_n)) +
+    geom_errorbar(aes(ymin=ymin,ymax=ymax),width=.1, show.legend = FALSE) + # add sescond geometric shape in form of errorbars in addition to the points indicating the means
+    labs(y = "Durchschnittliches finanzielles Auskommen\n0=sehr schwer - 4=sehr gut", x= "Arbeitsmarktstatus",color="Vermögenswerte (Summenindex)") + 
+    scale_color_brewer(palette = "RdYlBu", direction=1) +  
+    scale_y_continuous(limits = c(0,4.2),breaks = seq(0, 4, by = 1)) +
+    theme_hc() +
+    scale_x_discrete(guide = guide_axis(n.dodge = 2)) +
+    guides(color=guide_legend(ncol=7,nrow=1,byrow=TRUE)) 
+
+
+```
+
+## Statistical models to test our hypotheses (Fixed effects regressions)
+
+Finally, we can move to actually testing our hypotheses using the very minimal identification strategy of a cross-sectional data analysis, where we assume that we control for all potential selection/confounders of our variables of interest. First we test H1, then H2. Our estimatgion strategy uses a linear regression with an ordinary least squares estimator (OLS). We export the results in form of a regression table, a coefficient plot and a plot indicating Average marginal effects. 
+
+```{r fixed effects regression}
+
+#listwise deletion of missing values
+
+dataset_r_rec_reg <- dataset_r_rec %>% filter(!is.na(wave)&!is.na(lab_sta_cur))
+
+dataset_r_rec_reg$wave_f <-as.factor(dataset_r_rec_reg$wave) # for the following we need wave as a factor variable (not as a continous variable going from 6-24) 
+
+#Let us start with a very basic linear regression
+
+mymodel1<-lm(fin_aus_akt_n~lab_sta_cur,data=dataset_r_rec_reg,weights=WEIGHTD)
+
+# the lm function works in the following form: lm(DV~IV1+IV2...+IVN, data=dataset,weights=weights) where DV is the dependent variable of interest and IV1-N are n potential independent variables. 
+
+#We can look at the results using the summary function:
+summary(mymodel1)
+
+#We now try to calculate a similair model using the fixest package. This package will afterwards alow us to account for the panel strucutre by calculating regressions with fixed effects. 
+
+#use the plm package or the lme4 package for random effects models see: http://www.stat.columbia.edu/~gelman/arm/ for an explanation on the difference to fixed effects and when to use them (in this course you can also stick to fixed effects)
+
+mymodel1_a<-feols(fin_aus_akt_n~lab_sta_cur,data=dataset_r_rec_reg, weights=~WEIGHTD) 
+
+modelsummary(list(mymodel1,mymodel1_a), stars = TRUE,output="markdown") # we see that all coefficients and their standard errors are identical (some measures of model fit are not but these is due to different estimation strategies which does not affect our interpretations. This simply shows that we should only compare Log Lik and AIC of different models using the same function -> lm or feols)
+
+# now let's calculate our first regression accounting for the fact that not all observations are drawn from a random sample. More specifically we still assume that our respondents are drawn from a random sample but we account for the fact that observations (for each wave) are nested within  individuals. This is the case because the same individual is participating several times in the panel survey. 
+
+# pooled model with clustered standard errors
+mymodel1_c<-feols(fin_aus_akt_n~lab_sta_cur,data=dataset_r_rec_reg, weights=~WEIGHTD, vcov = ~id) 
+
+modelsummary(list(mymodel1,mymodel1_a,mymodel1_c), stars = TRUE,output="markdown")#gof_map = c("nobs", "r.squared") <- if you only want to print out number of observations and R2
+
+#we see that while the coefficients are the same the standard errors differ because we actually account for the nested data structure.
+
+etable(mymodel1_c) # export table function of the fixest package - less nice looking but 
+
+# pooled model with time fixed effects 
+# next we do not only account for the fact that not all observations are drawn randomly but we also want to "get rid" of average changes over time. This is important if we are interested in individual changes and do not want to want general changes over time to confound the relationship we are interested in.Specifically if we think time (timing of the survey) can affect both the financial satisfaction of an individual and the likelihood of being in home office we might want to include time fixed effects. For example if a policy change or the general COVID-19 situation in Austria affected how much people earn in home office and whether people actually are in home office we might misjudge these influences for other factors if we do not include time fixed effects. Mathematically including time fixed effects means that we include a seperate dummy variable (0/1) for every time point (=wave) -1 in our sample. These account for all average homogeneous differences in financial satisfaction between waves. 
+
+#wave fixed effects with the lm function
+mymodel2<-lm(fin_aus_akt_n~lab_sta_cur + wave_f,data=dataset_r_rec_reg,weights=WEIGHTD)
+
+#wave fixed effects with the fixest package
+mymodel2_a<-feols(fin_aus_akt_n~lab_sta_cur | wave_f ,data=dataset_r_rec_reg, weights=~WEIGHTD, vcov ="iid") 
+
+#wave fixed effects with fixest package and accurately clustered standard errors 
+mymodel2_b<-feols(fin_aus_akt_n~lab_sta_cur | wave_f ,data=dataset_r_rec_reg, weights=~WEIGHTD, vcov = ~id + wave_f) 
+
+modelsummary(list(mymodel2,mymodel2_a,mymodel2_b), stars = TRUE,output="markdown") 
+
+#Again there are now differences between model 1 and 2 using either the lm function of the fixest package except that the first one actually lists the wave fixed effects while the second does not show them but still has them in the model . This is indicated by: "FE: wave		X	X". The third model calculates standard errors (SE) accounting for the clustered data. Thus, coefficients are the same to the other models but SE change. 
+
+#Similair to time fixed effects we can also include individual fixed effects. These are important if we think that stable characteristica of individuals that we cannot account for (e.g. whether a person has rich or poor parents - we have not variables indicating that in the dataset) might affect both how likely a person is to be in home office and how satisfied a person is with his or her financial situation. 
+
+#id fixed effects with the fixest package
+mymodel3<-feols(fin_aus_akt_n~lab_sta_cur | id ,data=dataset_r_rec_reg, weights=~WEIGHTD, vcov = ~id + wave_f) 
+
+modelsummary(list(mymodel1_c,mymodel2_b,mymodel3), stars = TRUE,output="markdown") 
+#We see that accounting for average differences between individuals reduces a lot of the effect sizes. This is often the case as we are only using the changes over time to calculate the effects. Thus, including id fixed effects gives us a more conservative but also more robust estimate of the potential true effects. Compared to the other models for example we see that accounting for stable differences between individuals decreases the former stat. sign. positive coefficient of home-office so that people in home-office and those working "normally like before" are not stat. sign. different from each other. 
+
+# In a final step you might want to control for both average differences between times and individuals. For example our finding of a negative effect of kurzarbeit on financial satisfaction could be driven by the fact that a lot of people were in Kurzarbeit at the beginning of the pandemic and a at that time a lot of people might have also been very unsecure about the stability of their income and thus also answered that they are not satisfied with their income. However, this means that our Kurzarbeit effect would really be a scepticism effect that we mistake for a Kurzarbeit effect. Hence, the two way fixed effects analysis. It accounts for both average differences in times and between individuals so that we only use changes within individuals over time to estimate our effects. Including variables like gender or birth year for example would result in no changes of our estimates because gender and birth year do not change over time in our data. 
+
+# two way fixed effect (also called 2FE) with the fixest package
+mymodel4<-feols(fin_aus_akt_n~lab_sta_cur | id + wave_f,data=dataset_r_rec_reg, weights=~WEIGHTD, vcov = ~id + wave_f) 
+modelsummary(list(mymodel1_c,mymodel2_b,mymodel3,mymodel4), stars = TRUE,output="markdown")
+
+#Results indicate that the effects of Kurzarbeit and Home Office are not an artefact of not accounting for differences in time. Thus, these two status changes are correlated with a decrease in financial satisfaction of the respondents over time. However, all other variables that change over time and are correlated with changes over time in Kurzarbeit and financial satisfaction could also explain these results. Thus, this appraoch enables us to account for stable differences but does not make control variables redundant.
+
+#Two-way fixed effects have also been criticized in the last 2-3 years because of unstable estimation of effects in some cases (e.g. with heterogeneous treatment effects). You can find a discussion about that here: https://bcallaway11.github.io/did/articles/TWFE.html Because this is mathematically complex and quite advanced we are not implementing these newer approaches here. However, in my view they are clearly better and will be used more frequently in the future.
+
+####
+
+
+# Our third hypotheses states that the economic shock of a certain labor market condition like home-office,  Kurzarbeit or unemployment might be less severe if the individual can rely on financial assets in form of different categories of wealth. This hypothesizes a moderating relationship: The higher the wealth the less sever should be the difference in financial satisfaction between different forms of labor market status.
+
+# Let's add wealth to our model and also account for the hypothesizes moderating relationship by adding an interaction between lab_sta_cur and ase_sum_n. (That is we allow the strength of the relationship to vary depending on the respective other variable). We again calculate 4 different models to see how the the estimation strategy influences our results. 
+
+mymodel_w1<-feols(fin_aus_akt_n~lab_sta_cur + ase_sum_n + lab_sta_cur*ase_sum_n,data=dataset_r_rec_reg, weights=~WEIGHTD, vcov = ~id) 
+mymodel_w2<-feols(fin_aus_akt_n~lab_sta_cur + ase_sum_n + lab_sta_cur*ase_sum_n | wave_f,data=dataset_r_rec_reg, weights=~WEIGHTD, vcov = ~id + wave_f) 
+mymodel_w3<-feols(fin_aus_akt_n~lab_sta_cur + ase_sum_n + lab_sta_cur*ase_sum_n | id,data=dataset_r_rec_reg, weights=~WEIGHTD, vcov = ~id + wave_f) 
+mymodel_w4<-feols(fin_aus_akt_n~lab_sta_cur + ase_sum_n + lab_sta_cur*ase_sum_n | id + wave_f,data=dataset_r_rec_reg, weights=~WEIGHTD, vcov = ~id + wave_f) 
+
+#Let's look at the model. How would you interpret the results
+modelsummary(list(mymodel_w1,mymodel_w2,mymodel_w3,mymodel_w4), stars = TRUE,output="markdown")
+#We can see that the model calculates no coefficient for the baseline effect of the wealth variable "ase_sum_n". This is the case because the data contains nod within individual variation of wealth over time. However wealth can act as a stable moderator of changing variables. Thus, we still get coefficients for the interaction effects. 
+
+# we can create a regression table containing the models we think are important. Afterwards we export it to word.
+modelsummary(list(mymodel1_c,mymodel4,mymodel_w1,mymodel_w4), stars = TRUE,output="./output/tables/regtable1_panel.docx")
+
+# Because interactions are hard to interpret using regression tables, we can calculate conditional adjusted predictions and average marginal effects which provide us with more straightforward interpretation of whether the effect of labor market status on financial satisfaction is dependent on the amount of wealth an individual has.
+
+#Conditional Marginal Effects (Plot) ->
+plot_cme(mymodel_w4, effect = "ase_sum_n", condition = "lab_sta_cur") + 
+  labs(x="Arbeitsmarktstatus",y="AME of wealth") +
+  scale_x_discrete(guide = guide_axis(n.dodge = 2))
+
+#interpretation having more wealth decreases the negative effect of changing from "Unselbstständig erwerbstätig" to "Arbeitslos". The effect goes in the other direction for changes from "Unselbstständig erwerbstätig" to Kurzarbeit. This might be the case because of selection issues within the group of those in Kurzarbeit. For example we do not control for the amount of Kurzarbeit. If the wealthy have higher degrees of Kurzarbeit than the poor this could bias our estimates.
+
+
+```  
+ 
+## Statistical models to test our hypotheses (differences in differences)
+
+We investigate whether the effect of Kurzarbeit changes due to a reform starting at the first of October (Kurzarbeit Phase 3). 
+
+```{r difference in difference analysis}
+
+#listwise deletion of missing values
+
+dataset_r_rec_reg <- dataset_r_rec %>% filter(!is.na(wave)&!is.na(lab_sta_cur)&!is.na(fin_aus_akt_n))
+
+#get the median start day for each interview wave
+
+dataset_r_rec_reg %>% group_by(wave) %>% summarise(wavedate=median(START_DATE))
+#wave 15 last wave before the reform, wave 16 first wave after the reform
+
+#we have to assume stable differences in financial satisfaction between the control group and the treatment group (in our case those working like before and those in kurzarbeit) -> issues? -> we will only use data from wave 14/15 and of wave 16/17 to avoid some of these issues.
+
+dataset_r_rec_reg<-dataset_r_rec_reg %>% mutate(treatwave = ifelse(wave==16|wave==17,1,
+                                                            ifelse(wave==14|wave==15,0,NA)))
+
+dataset_r_rec_reg$treatwave<-as.factor(dataset_r_rec_reg$treatwave)
+levels(dataset_r_rec_reg$treatwave)<-c("Kurzarbeit alt","Kurzarbeit neu")
+
+#calculate a dummy variable beeing 1 if and individual belongs to the treatment group and 0 if an individual belongs to the control group -> 2 definitions of the control
+
+dataset_r_rec_reg<-dataset_r_rec_reg %>% mutate(treatment_a=ifelse(lab_sta_cur=="in Kurzarbeit",1,
+                                                            ifelse(lab_sta_cur=="(Un)selbststaendig erwerbstaetig"|
+                                                                   lab_sta_cur=="in Home Office"|
+                                                                   lab_sta_cur=="Arbeitslos",0,NA)),
+                                                
+                                                treatment_r=ifelse(lab_sta_cur=="in Kurzarbeit",1,
+                                                            ifelse(lab_sta_cur=="(Un)selbststaendig erwerbstaetig",0,NA)))
+
+dataset_r_rec_reg$treatment_a<-as.factor(dataset_r_rec_reg$treatment_a)
+levels(dataset_r_rec_reg$treatment_a)<-c("Control","Treatment (KA)")
+
+dataset_r_rec_reg$treatment_r<-as.factor(dataset_r_rec_reg$treatment_r)
+levels(dataset_r_rec_reg$treatment_r)<-c("Control","Treatment (KA)")
+
+# testing the parallel trends assumption visually
+
+data_mean <- dataset_r_rec_reg  %>% filter(!is.na(treatment_a)) %>%
+  as_survey_design(weights = c(WEIGHTD)) %>%
+  group_by(treatment_a,wave) %>% # group the data by the levels in the variable lab_sta_cur
+  summarise(mean=survey_mean(fin_aus_akt_n,vartype = c("se"))) %>% # calculate the weighted mean
+  group_by(treatment_a,wave) %>%
+     mutate(ymax=mean+1.96*mean_se, ymin=mean-1.96*mean_se) # calculate the aprox. upper and lower tail of the 95% confidence interval
+
+ggplot(data_mean, aes(color=treatment_a,x=as.factor(wave), y=mean)) + #color instead of fill because points have colors and no fill
+    geom_point(position="identity", show.legend = FALSE,stat = "identity") + #geom_point instead of geom_bar
+    geom_line(aes(group=treatment_a)) +
+    geom_errorbar(aes(ymin=ymin,ymax=ymax),width=.1, show.legend = FALSE) + # add sescond geometric shape in form of errorbars in addition to the points indicating the means
+    geom_vline(xintercept = 10.5, linetype=4,colour="darkgrey") +
+    labs(y = "Durchschnittliches finanzielles Auskommen\n0=sehr schwer - 4=sehr gut", x= "wave",color="", caption="Vertical line indicates treatment timing") + 
+    scale_color_brewer(palette = "Blues", direction=1) +  
+    scale_y_continuous(limits = c(0,4.2),breaks = seq(0, 4, by = 1)) +
+    theme_hc() +
+    scale_x_discrete(guide = guide_axis(n.dodge = 2)) +
+    guides(color=guide_legend(ncol=2,nrow=1,byrow=TRUE)) 
+
+#To test this formally, we estimate regression equation (1) isolated to the pre-treatment period, including time as categorical variable in the regression model
+
+didreg1 = lm(fin_aus_akt_n ~ treatment_a*wave, data = dataset_r_rec_reg%>%filter(wave<=15),weights = WEIGHTD)
+summary(didreg1)
+
+didreg2 = lm(fin_aus_akt_n ~ treatment_a*relevel(wave_f, ref = "15"), data = dataset_r_rec_reg%>%filter(wave<=15),weights = WEIGHTD)
+summary(didreg2)
+
+
+acp_didreg1 = lm(fin_aus_akt_n ~ treatment_a*treatwave, data = dataset_r_rec_reg,weights = WEIGHTD)
+
+acp_didreg2 = lm(fin_aus_akt_n ~ treatment_r*treatwave, data = dataset_r_rec_reg,weights = WEIGHTD)
+
+modelsummary(list(acp_didreg1,acp_didreg2), stars = TRUE,output="markdown") 
+
+#for an estimation that calculates the right standard errors and is quite useful when you cannot assume stable treatment effects at one point in time refer to the did package: https://bcallaway11.github.io/did/index.html
+
+
+```  
+  

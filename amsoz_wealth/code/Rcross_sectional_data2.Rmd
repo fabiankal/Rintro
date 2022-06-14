@@ -111,7 +111,7 @@ We will focus on the first Research Design here and move to the 2nd and third in
 
 ### How can I operationalize the concepts in my hypotheses?
 
-Best thing would be to look at other papers ans find out how the operationalized for example preferences for redistribution and make a study using the optimal operationalization. As we use secondary data, we cannot do that. We can only use what is there. This means we cannot have concepts in our hypotheses which are not in the data.
+Best thing would be to look at other papers and find out how they operationalize for example "preferences for redistribution" and make a study using the optimal operationalization four your research questions. As we use secondary data, we cannot do that. We can only use what is there. This means we cannot have concepts in our hypotheses which are not in the data.
 
 look up the question --> let's focus on wave 6 for now
 
@@ -190,9 +190,9 @@ nrow(dataset_r) # now we have only the 1551 individuals participated in this wav
 ```
 ## Recoding the variables
 
-We now have a dataset containing only individuals participating in wave 6 with only those variables we actually need. However the coding of this variables can be different from what we would want. For example R can interpret numeric values as characters, make factor variables out of we want to use as continous variables. Furthermore, sometimes we want want certain variables recoded (e.g. not differentiating between public and private employees in the variable indicating labor market status) or generate new variables from others (e.g. generating a wealth index from the various welath indicators in the dataset). 
+We now have a dataset containing only individuals participating in wave 6 with only those variables we actually need. However the coding of these variables can be different from what we would want. For example R can interpret numeric values as characters or make factor variables out of variables we want to use as in a continuous form. Furthermore, sometimes we want want certain variables recoded (e.g. not differentiating between public and private employees in the variable indicating labor market status) or generate new variables from others (e.g. generating a wealth index from the various wealth indicators in the dataset). 
 
-The following code looks at different variables, recodes them to be used to test our hypotheses and checks wether the different recodings are correct.
+The following code looks at different variables, recodes them to be used to test our hypotheses and checks whether the different recodings are correct.
 
 ```{r looking at the data and recoding}
 
