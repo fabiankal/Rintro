@@ -1,7 +1,7 @@
 ---
 title: "R_panel_data"
 author: "Fabian Kalleitner"
-date: "08/06/2022"
+date: "14/06/2022"
 output: html_document
 ---
 
@@ -25,7 +25,7 @@ knitr::opts_chunk$set(echo = TRUE)
 ###################################################
 
 
-#install.packages("stargazer")# remember installing if not done previously
+#install.packages("panelr")# remember installing if not done previously
 
 
 library("tidyverse") 
@@ -100,7 +100,7 @@ H3:
 ### What is an appropriate research design (identification strategy) to test my hypotheses?
 
 - For cross sectional correlation tests using regressions (controlling for confounders) refer to R_cross_sectional_data.Rmd
-- Panel regression (utilizing changes instead of levels)
+- Panel regression with fixed effects (utilizing changes instead of levels)
 - Differences in differences (Focussing on a single change in time between groups that have similar time trajectories)
 
 ### How can I operationalize the concepts in my hypotheses?
@@ -145,7 +145,7 @@ Because we want to use multiple waves and each survey question has different var
   - EIGENTUM: AKTIEN, WERTPAPIERE, FONDS ODER ANLEIHEN SD_OWNER_SHARES
   - EIGENTUM: WOCHENENDHAUS, FERIENWOHNUNG,ETC. SD_OWNER_WEEKENDHOUSE
   
-  Note that we do NOT have multiple observations of EIGENTUM over time. Hence we assume, that the amount of wealth of an individual stays roughly the same during the observation period. As indicated in the documentation questions on wealth have been introduced in wave 16. Thus, we do not have information on wealth of respondents who participated only in wave 1-15 and never after. Thus, we might want to calculate a robustness check using only data between wave 16 and 24. We do that because those missing and not missing before wave 16 might differ in ways that also relates to our variables we want to study which could bias our results.
+Note that we do NOT have multiple observations of EIGENTUM over time. Hence we assume, that the amount of wealth of an individual stays roughly the same during the observation period. As indicated in the documentation questions on wealth have been introduced in wave 16. Thus, we do not have information on wealth of respondents who participated only in wave 1-15 and never after. Thus, we might want to calculate a robustness check using only data between wave 16 and 24. We do that because those missing and not missing before wave 16 might differ in ways that also relates to our variables we want to study which could bias our results.
   
 ### Think about potential confounders and the sample
 
@@ -233,12 +233,12 @@ ncol(dataset_r) #now we have only the 235 variables in the dataset that we inden
 
 We now have a dataset containing only those variables we actually need. But we have  similar problems compared to the cross sectional data: The coding of these variables can be different from what we would want. For example R can interpret numeric values as characters or make factor variables out of variables we want to use as in a continuous form. Furthermore, sometimes we want want certain variables recoded (e.g. not differentiating between public and private employees in the variable indicating labor market status) or generate new variables from others (e.g. generating a wealth index from the various wealth indicators in the dataset). 
 
-In addition it is impracticable to have different variable names for the same variable. For example the variable "Finanizielles Auskommen" in wave 6 and 7differs not only because of the prefix "W6_" "W7_" but also because the rest is different: "W6_Q72","W7_Q69". In this form we cannot easily switch between long and wide data and R does not know which colums contain similair variables measured in different waves. 
+In addition it is impracticable to have different variable names for the same variable. For example the variable "Finanizielles Auskommen" in wave 6 and 7 differs not only because of the prefix "W6_" "W7_" but also because the rest is different: "W6_Q72","W7_Q69". In this form we cannot easily switch between long and wide data and R does not know which colums contain similar variables measured in different waves. 
 
 The following code looks renames the variables and afterwards generates a long dataset which is more handy when it comes to recoding the data (as the amount of variables gets reduced drastically). 
 
-```{r looking at the data and recoding}
-#note you can select multible lines at once if you hold the alt key and then select lines by dragging with the mouse to create a selection
+```{r renaming variables and reshaping the data}
+#note you can select multiple lines at once if you hold the alt key and then select lines by dragging with the mouse to create a selection
 
 #Finanzielles Auskommen
 dataset_r<-dataset_r %>% rename(W6_fin_ausk_akt = W6_Q72,
@@ -726,7 +726,7 @@ ggplot(data_mean, aes(color=as.factor(ase_sum_n),ase_sum_n,x=as.factor(wave), y=
     geom_point(position="identity", show.legend = FALSE,stat = "identity") + #geom_point instead of geom_bar
     geom_line(aes(group=ase_sum_n)) +
     geom_errorbar(aes(ymin=ymin,ymax=ymax),width=.1, show.legend = FALSE) + # add sescond geometric shape in form of errorbars in addition to the points indicating the means
-    labs(y = "Durchschnittliches finanzielles Auskommen\n0=sehr schwer - 4=sehr gut", x= "Arbeitsmarktstatus",color="Vermögenswerte (Summenindex)") + 
+    labs(y = "Durchschnittliches finanzielles Auskommen\n0=sehr schwer - 4=sehr gut", x= "Welle",color="Vermögenswerte (Summenindex)") + 
     scale_color_brewer(palette = "RdYlBu", direction=1) +  
     scale_y_continuous(limits = c(0,4.2),breaks = seq(0, 4, by = 1)) +
     theme_hc() +
@@ -738,7 +738,7 @@ ggplot(data_mean, aes(color=as.factor(ase_sum_n),ase_sum_n,x=as.factor(wave), y=
 
 ## Statistical models to test our hypotheses (Fixed effects regressions)
 
-Finally, we can move to actually testing our hypotheses using the very minimal identification strategy of a cross-sectional data analysis, where we assume that we control for all potential selection/confounders of our variables of interest. First we test H1, then H2. Our estimatgion strategy uses a linear regression with an ordinary least squares estimator (OLS). We export the results in form of a regression table, a coefficient plot and a plot indicating Average marginal effects. 
+Finally, we can move to actually testing our hypotheses using panel regression with fixed effects in different forms. First we test H1, then H3. Our estimatgion strategy uses a linear regression with an ordinary least squares estimator (OLS) and clustered standard errors. We export the results in form of a regression table, a coefficient plot and a plot indicating Average marginal effects. 
 
 ```{r fixed effects regression}
 
@@ -757,7 +757,7 @@ mymodel1<-lm(fin_aus_akt_n~lab_sta_cur,data=dataset_r_rec_reg,weights=WEIGHTD)
 #We can look at the results using the summary function:
 summary(mymodel1)
 
-#We now try to calculate a similair model using the fixest package. This package will afterwards alow us to account for the panel strucutre by calculating regressions with fixed effects. 
+#We now try to calculate a similar model using the fixest package. This package will afterwards allow us to account for the panel structure by calculating regressions with fixed effects. 
 
 #use the plm package or the lme4 package for random effects models see: http://www.stat.columbia.edu/~gelman/arm/ for an explanation on the difference to fixed effects and when to use them (in this course you can also stick to fixed effects)
 
@@ -812,7 +812,6 @@ modelsummary(list(mymodel1_c,mymodel2_b,mymodel3,mymodel4), stars = TRUE,output=
 
 ####
 
-
 # Our third hypotheses states that the economic shock of a certain labor market condition like home-office,  Kurzarbeit or unemployment might be less severe if the individual can rely on financial assets in form of different categories of wealth. This hypothesizes a moderating relationship: The higher the wealth the less sever should be the difference in financial satisfaction between different forms of labor market status.
 
 # Let's add wealth to our model and also account for the hypothesizes moderating relationship by adding an interaction between lab_sta_cur and ase_sum_n. (That is we allow the strength of the relationship to vary depending on the respective other variable). We again calculate 4 different models to see how the the estimation strategy influences our results. 
@@ -843,7 +842,7 @@ plot_cme(mymodel_w4, effect = "ase_sum_n", condition = "lab_sta_cur") +
  
 ## Statistical models to test our hypotheses (differences in differences)
 
-We investigate whether the effect of Kurzarbeit changes due to a reform starting at the first of October (Kurzarbeit Phase 3). 
+We investigate whether the effect of Kurzarbeit changes due to a reform starting at the first of October 2020 (Kurzarbeit Phase 3). 
 
 ```{r difference in difference analysis}
 
@@ -909,7 +908,7 @@ summary(didreg1)
 didreg2 = lm(fin_aus_akt_n ~ treatment_a*relevel(wave_f, ref = "15"), data = dataset_r_rec_reg%>%filter(wave<=15),weights = WEIGHTD)
 summary(didreg2)
 
-
+#regressions for the dif in dif model
 acp_didreg1 = lm(fin_aus_akt_n ~ treatment_a*treatwave, data = dataset_r_rec_reg,weights = WEIGHTD)
 
 acp_didreg2 = lm(fin_aus_akt_n ~ treatment_r*treatwave, data = dataset_r_rec_reg,weights = WEIGHTD)
