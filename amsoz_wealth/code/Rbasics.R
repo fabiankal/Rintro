@@ -173,9 +173,9 @@ df$victor1[2:3] #all values from 2 to 3 : works always you can also type in 2:5 
 df[2,1] #row two column one
 
 df[df$victor1==8,]  # take all rows in which victor 1 = 8   
-                    # important logical operators in R are == which stands for = , 
-                    # & which stands for and, 
-                    # | which stands for or (bit more complex but also important %in% = identify if an element belongs to a vector)
+# important logical operators in R are == which stands for = , 
+# & which stands for and, 
+# | which stands for or (bit more complex but also important %in% = identify if an element belongs to a vector)
 
 df[c(FALSE,FALSE,TRUE),] 
 

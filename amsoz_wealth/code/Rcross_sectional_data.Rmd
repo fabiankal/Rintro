@@ -24,11 +24,11 @@ knitr::opts_chunk$set(echo = TRUE)
 #load packages
 ###################################################
 
-#install.packages("ineq") rmember installing if not done previously
 
-#library("ineq")
+#install.packages("stargazer")# remember installing if not done previously
+
+
 library("tidyverse") 
-#library("panelr")
 library("stargazer")
 library("modelsummary") # installing can take a while
 library("flextable")
@@ -46,7 +46,7 @@ library("marginaleffects")
 
 getwd() # read the working directory of this R session (this is the standard file path for R)
 
-#setwd("C:/Users/Kalleitner/Documents/GIT/Rintro/amsoz_wealth/") # you can change the working directory in an R script if it is not the root directory of the project using this code
+setwd("C:/Users/Kalleitner/Documents/GIT/Rintro/amsoz_wealth/") # you can change the working directory in an R script if it is not the root directory of the project using this code
 
 knitr::opts_knit$set(root.dir = 'C:/Users/Kalleitner/Documents/GIT/Rintro/amsoz_wealth/') # to change the root directory in a R markdown file use this code
 
@@ -83,7 +83,7 @@ glimpse(dataset[,600:610]) # take a look at columns 600-610 in the dataset
 
 ## Where can I find the variables I need? 
 
-Let's look at the documentation to find what colums correspond to which question in the survey
+Let's look at the documentation to find what columns correspond to which question in the survey
 
 ### What concepts do I have in my hypotheses?
 
@@ -91,9 +91,12 @@ H1:
 
 - finanzielle Situation
 - neuen Arbeitsmarktsituation
+
+H2:
+- all the above
 - subjektive ökonomische Gefahreneinschätzung
 
-H2: 
+H3: 
 
 - all the above
 - Vermögen
@@ -108,7 +111,7 @@ We will focus on the first Research Design here and move to the 2nd and third in
 
 ### How can I operationalize the concepts in my hypotheses?
 
-Best thing would be to look at other papers ans find out how the operationalized for example preferences for redistribution and make a study using the optimal operationalization. As we use secondary data, we cannot do that. We can only use what is there. This means we cannot have concepts in our hypotheses which are not in the data.
+Best thing would be to look at other papers and find out how they operationalize for example "preferences for redistribution" and make a study using the optimal operationalization four your research questions. As we use secondary data, we cannot do that. We can only use what is there. This means we cannot have concepts in our hypotheses which are not in the data.
 
 look up the question --> let's focus on wave 6 for now
 
@@ -187,15 +190,15 @@ nrow(dataset_r) # now we have only the 1551 individuals participated in this wav
 ```
 ## Recoding the variables
 
-We now have a dataset containing only individuals participating in wave 6 with only those variables we actually need. However the coding of this variables can be different from what we would want. For example R can interpret numeric values as characters, make factor variables out of we want to use as continous variables. Furthermore, sometimes we want want certain variables recoded (e.g. not differentiating between public and private employees in the variable indicating labor market status) or generate new variables from others (e.g. generating a wealth index from the various welath indicators in the dataset). 
+We now have a dataset containing only individuals participating in wave 6 with only those variables we actually need. However the coding of these variables can be different from what we would want. For example R can interpret numeric values as characters or make factor variables out of variables we want to use as in a continuous form. Furthermore, sometimes we want want certain variables recoded (e.g. not differentiating between public and private employees in the variable indicating labor market status) or generate new variables from others (e.g. generating a wealth index from the various wealth indicators in the dataset). 
 
-The following code looks at different variables, recodes them to be used to test our hypotheses and checks wether the different recodings are correct.
+The following code looks at different variables, recodes them to be used to test our hypotheses and checks whether the different recodings are correct.
 
 ```{r looking at the data and recoding}
 
-table(dataset$W6_Q72) # Finanzielles Auskommen: Aktuell
+table(dataset_r$W6_Q72) # Finanzielles Auskommen: Aktuell
 
-table(as_factor(dataset$W6_Q72)) # Finanzielles Auskommen: Aktuell
+table(as_factor(dataset_r$W6_Q72)) # Finanzielles Auskommen: Aktuell
 
 # two things are important here: we sometimes will want the numeric value of a variable and sometimes it's factor level and 2 we sometimes want to have missing values included in the data and sometimes not (especially when we do calculations with this variable)
 
@@ -319,6 +322,7 @@ dataset_r_rec_sum <- dataset_r_rec %>% select(`respondent ID` = RESPID,
                                               `weight` = W6_WEIGHTD,
                                               `financial satisfaction` = fin_aus_akt_f,
                                               `financial satisfaction num` = fin_aus_akt_n,
+                                              `economic threat perception` = gef_oec_gen_n,
                                               `wealth` = ase_sum_n,
                                               `labor market status` = lab_sta_cur)
 
@@ -427,7 +431,7 @@ ggplot(data_sum, aes(fill=fin_aus_akt_f,x=fin_aus_akt_f, y=prop)) +
     guides(fill=guide_legend(ncol=5,nrow=2,byrow=TRUE)) + 
     scale_x_discrete(guide = guide_axis(n.dodge = 2))
 
-ggsave("Figure1.png", units="in", width=7, height=4, type="cairo-png") # save the graph as png file using this size in inches, flatten the edges using cairo. Note that you have to run this line at the same time you are running the ggplot code
+ggsave("./output/figures/Figure1.png", units="in", width=7, height=4, type="cairo-png") # save the graph as png file using this size in inches, flatten the edges using cairo. Note that you have to run this line at the same time you are running the ggplot code
 
 #ggsave("./output/figures/Figure1.png", units="in", width=7, height=4) # if cairo does not work on your PC use this
 
@@ -552,6 +556,12 @@ plot_cme(mymodel3, effect = "ase_sum_n", condition = "lab_sta_cur")
 plot_cme(mymodel3, effect = "ase_sum_n", condition = "lab_sta_cur") + 
   labs(x="Arbeitsmarktstatus",y="AME of wealth") +
   scale_x_discrete(guide = guide_axis(n.dodge = 2))
+
+
+mymodel4<-lm(fin_aus_akt_n~lab_sta_cur + gef_oec_gen_n + ase_sum_n + lab_sta_cur*ase_sum_n + gef_oec_gen_n*ase_sum_n,data=dataset_r_rec,weights=W6_WEIGHTD)
+
+#Let's look at the model. How would you interpret the results
+summary(mymodel4)
 
 
 
